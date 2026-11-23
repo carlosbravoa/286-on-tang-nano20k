@@ -1,0 +1,59 @@
+// Tang Nano 20K (GW2AR-LV18QN88C8/I7) pins of the 286 machine.
+// Same choices as the Atari816 project, where they were proven on the board.
+
+// 27 MHz oscillator, the PLL input pin
+IO_LOC  "sys_clk"     4;
+IO_PORT "sys_clk"     PULL_MODE=UP IO_TYPE=LVCMOS33;
+
+// buttons S1 (reset) and S2: high when pressed
+IO_LOC  "btn[0]"      88;
+IO_LOC  "btn[1]"      87;
+IO_PORT "btn[0]"      PULL_MODE=DOWN IO_TYPE=LVCMOS33;
+IO_PORT "btn[1]"      PULL_MODE=DOWN IO_TYPE=LVCMOS33;
+
+// LEDs (pins 15 and 16 are left alone)
+IO_LOC  "leds_n[0]"   17;
+IO_LOC  "leds_n[1]"   18;
+IO_LOC  "leds_n[2]"   19;
+IO_LOC  "leds_n[3]"   20;
+IO_PORT "leds_n[0]"   PULL_MODE=NONE IO_TYPE=LVCMOS33;
+IO_PORT "leds_n[1]"   PULL_MODE=NONE IO_TYPE=LVCMOS33;
+IO_PORT "leds_n[2]"   PULL_MODE=NONE IO_TYPE=LVCMOS33;
+IO_PORT "leds_n[3]"   PULL_MODE=NONE IO_TYPE=LVCMOS33;
+
+// HDMI
+IO_LOC  "tmds_clk_p"  33;
+IO_LOC  "tmds_clk_n"  34;
+IO_LOC  "tmds_p[0]"   35;
+IO_LOC  "tmds_n[0]"   36;
+IO_LOC  "tmds_p[1]"   37;
+IO_LOC  "tmds_n[1]"   38;
+IO_LOC  "tmds_p[2]"   39;
+IO_LOC  "tmds_n[2]"   40;
+IO_PORT "tmds_clk_p" IO_TYPE=LVDS25 PULL_MODE=NONE BANK_VCCIO=3.3;
+IO_PORT "tmds_p[0]"  IO_TYPE=LVDS25 PULL_MODE=NONE BANK_VCCIO=3.3;
+IO_PORT "tmds_p[1]"  IO_TYPE=LVDS25 PULL_MODE=NONE BANK_VCCIO=3.3;
+IO_PORT "tmds_p[2]"  IO_TYPE=LVDS25 PULL_MODE=NONE BANK_VCCIO=3.3;
+
+// microSD card (SPI mode)
+IO_LOC  "sd_clk"      83;
+IO_LOC  "sd_mosi"     82;
+IO_LOC  "sd_miso"     84;
+IO_LOC  "sd_cs"       81;
+IO_PORT "sd_clk"      PULL_MODE=NONE IO_TYPE=LVCMOS33;
+IO_PORT "sd_mosi"     PULL_MODE=NONE IO_TYPE=LVCMOS33;
+IO_PORT "sd_miso"     PULL_MODE=UP   IO_TYPE=LVCMOS33;
+IO_PORT "sd_cs"       PULL_MODE=NONE IO_TYPE=LVCMOS33;
+
+// keyboard and mouse: TX of the CH9350 (or the Pico acting as one), 115200 8N1.
+// Pin 53, as on the Atari816. (Never pin 51: it is the second PLL's clock input.)
+IO_LOC  "kbd_rx"      53;
+IO_PORT "kbd_rx"      PULL_MODE=UP IO_TYPE=LVCMOS33;
+
+// the board's USB serial port (BL616)
+IO_LOC  "bl616_uart_rx" 70;
+IO_PORT "bl616_uart_rx" PULL_MODE=UP IO_TYPE=LVCMOS33;
+IO_LOC  "bl616_uart_tx" 69;
+IO_PORT "bl616_uart_tx" PULL_MODE=UP IO_TYPE=LVCMOS33;
+
+// The SDRAM inside the package needs no pin locations.

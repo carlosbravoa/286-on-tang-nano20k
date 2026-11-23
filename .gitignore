@@ -1,0 +1,9 @@
+ref/
+build/
+fit/impl/
+fit/*.log
+fit/speed/*.vvp
+fit/speed/*.bin
+fit/speed/*.hex
+dos-disk/
+__pycache__/
