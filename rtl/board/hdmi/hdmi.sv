@@ -105,6 +105,18 @@ logic invert;
 // See CEA-861-D for more specifics formats described below.
 generate
     case (VIDEO_ID_CODE)
+        0:  // not a CEA format: 640x400 at 70 Hz, the VGA timing of the 200 and 400 line modes
+        begin
+            assign frame_width = 800;
+            assign frame_height = 449;
+            assign screen_width = 640;
+            assign screen_height = 400;
+            assign hsync_pulse_start = 16;
+            assign hsync_pulse_size = 96;
+            assign vsync_pulse_start = 12;
+            assign vsync_pulse_size = 2;
+            assign invert = 1;
+        end
         1:
         begin
             assign frame_width = 800;
@@ -206,7 +218,7 @@ endgenerate
 
 // hsync and vsync are driven directly by external inputs hsync_in and vsync_in
 
-localparam real VIDEO_RATE = (VIDEO_ID_CODE == 1 ? 25.2E6
+localparam real VIDEO_RATE = (VIDEO_ID_CODE == 0 || VIDEO_ID_CODE == 1 ? 25.2E6
     : VIDEO_ID_CODE == 2 || VIDEO_ID_CODE == 3 ? 27.027E6
     : VIDEO_ID_CODE == 4 ? 74.25E6
     : VIDEO_ID_CODE == 16 ? 148.5E6

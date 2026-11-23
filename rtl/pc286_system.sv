@@ -5,7 +5,8 @@ module pc286_system #(
     parameter int CLK_HZ = 25_312_500,
     parameter BIOS_HEX = "build/bios16.hex",
     parameter HID_TABLE = "build/hid_table.hex",
-    parameter FONT_HEX = "fonts/vga8x16.hex"
+    parameter FONT_HEX = "fonts/vga8x16.hex",
+    parameter int LINES = 525           // raster: 525 (640x480 at 60 Hz) or 449 (640x400 at 70 Hz)
 ) (
     input  logic        clk,            // CPU clock
     input  logic        reset,
@@ -45,7 +46,7 @@ module pc286_system #(
 
     pc286_core #(.CLK_HZ(CLK_HZ), .BIOS_HEX(BIOS_HEX), .HID_TABLE(HID_TABLE)) core (.*);
 
-    video #(.FONT_HEX(FONT_HEX)) video (.clk_pix, .cx, .cy, .rgb, .hsync, .vsync,
+    video #(.FONT_HEX(FONT_HEX), .LINES(LINES)) video (.clk_pix, .cx, .cy, .rgb, .hsync, .vsync,
         .blank(vid_blank), .vretrace(vid_vsync), .clk, .reset, .crtc_start, .crtc_cursor,
         .cursor_start, .cursor_end, .vid_mode, .vid_color, .vid_ctrl,
         .vio_wr, .vio_rd, .vio_addr, .vio_wdata, .vio_rdata, .vf_req, .vf_addr, .vf_rdata, .vf_ack);

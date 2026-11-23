@@ -24,15 +24,19 @@ module kbd8042 (
     logic [1:0] expect_q;           // data byte expected at port 60h: 1 = command byte, 2 = output port
     logic [1:0] reply_n_q;          // replies waiting (keyboard commands)
     logic [7:0] reply_q, reply2_q;
+    // After a read of port 60h the next byte waits about a millisecond, as it does with a real
+    // keyboard: a program's own handler and the BIOS one it then calls both read the same byte.
+    logic [14:0] hold_q;
 
     assign rdata = a2 ? {3'b000, 1'b1, 1'b0, 1'b1, 1'b0, obf_q} : out_q;
     assign irq1  = obf_q && cmd_byte_q[0];
-    assign sc_ready = !obf_q && reply_n_q == 0 && !disabled_q && !(rd && !a2);
+    assign sc_ready = !obf_q && hold_q == 0 && reply_n_q == 0 && !disabled_q && !(rd && !a2);
 
     always_ff @(posedge clk) begin
         a20_set <= 1'b0; cpu_reset_req <= 1'b0;
-        if (rd && !a2) obf_q <= 1'b0;
-        else if (!obf_q) begin
+        if (hold_q != 0) hold_q <= hold_q - 15'd1;
+        if (rd && !a2) begin obf_q <= 1'b0; hold_q <= '1; end
+        else if (!obf_q && hold_q == 0) begin
             if (reply_n_q != 0) begin
                 out_q <= reply_q; reply_q <= reply2_q; reply_n_q <= reply_n_q - 2'd1; obf_q <= 1'b1;
             end else if (sc_valid && !disabled_q) begin out_q <= sc_data; obf_q <= 1'b1; end
@@ -65,7 +69,7 @@ module kbd8042 (
             end
         end
         if (reset) begin
-            obf_q <= 1'b0; disabled_q <= 1'b0; expect_q <= 2'd0; reply_n_q <= 2'd0;
+            obf_q <= 1'b0; hold_q <= '0; disabled_q <= 1'b0; expect_q <= 2'd0; reply_n_q <= 2'd0;
             cmd_byte_q <= 8'h45; out_q <= 8'h00; a20_value <= 1'b0;
         end
     end

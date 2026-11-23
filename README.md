@@ -14,7 +14,7 @@ Status: work in progress. In simulation the machine boots FreeDOS from an SD car
 | CPU | [SPK286](https://github.com/aitorgomez-net/SPK286), unmodified, in `ref/SPK286` |
 | RAM | the board's 8 MB SDRAM: 640 KB, plain RAM at C0000-FBFFF, 7 MB above 1 MB |
 | BIOS | our own (`bios/`), 16 KB in block RAM at FC000 |
-| Video | text 40x25 and 80x25, CGA 320x200x4 and 640x200x2, VGA 320x200x256 (mode 13h) with the VGA palette; 640x480 at 60 Hz on HDMI (`rtl/video.sv`) |
+| Video | text 40x25 and 80x25, CGA 320x200x4 and 640x200x2, VGA 320x200x256 (mode 13h) with the VGA palette; 640x480 at 60 Hz on HDMI, or 640x400 at 70 Hz as a VGA card sends it (`make bitstream LINES=449`) (`rtl/video.sv`) |
 | Keyboard | CH9350 (or a Pico acting as one) on pin 53, as on the Atari816; turned into set 1 scancodes at ports 60h/64h |
 | Mouse | the same CH9350; the driver (INT 33h) is in the BIOS |
 | Disk | SD card on an SPI port (E0h/E1h); the BIOS reads and writes sectors itself |
@@ -66,6 +66,7 @@ Needs: Verilator 5, NASM, Python 3, the Gowin IDE (for the bitstream).
     make sim                 # the BIOS and the fast simulator (build/sim)
     make build/simsys        # the whole system with video (build/simsys), slower
     make bitstream           # Gowin: build/gowin/pc286/impl/pnr/pc286.fs
+    make bitstream LINES=449 # the same with the 640x400 at 70 Hz raster
 
     build/sim --sd build/card.img --screen --expect 'A:\>' --type 'dir\r'
     build/simsys --sd build/card.img --cycles 9000000 --ppm frame.ppm

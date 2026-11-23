@@ -1,4 +1,7 @@
-// Video: a 640x400 picture in the middle of a 640x480 at 60 Hz raster.
+// Video: a 640x400 picture. LINES chooses the raster:
+//   525   640x480 at 60 Hz, the picture in the middle (lines 40-439)
+//   449   640x400 at 70 Hz, what a VGA card sends in these modes: programs that time
+//         themselves on the retrace run as they should
 //   text      80x25 or 40x25 cells of 8x16 pixels, cells at B8000h           (3D8h bit 1 = 0)
 //   CGA       320x200 in 4 colours or 640x200 in 2, at B8000h / BA000h       (3D8h bit 1 = 1)
 //   mode 13h  320x200 in 256 colours, one byte a pixel at A0000h             (vid_ctrl bit 0)
@@ -7,7 +10,7 @@
 // from there (pixel clock side). Every colour goes through the VGA palette (3C6h-3C9h).
 // cx/cy come from the HDMI transmitter; rgb is its pixel for cx/cy.
 `timescale 1ns/1ps
-module video #(parameter FONT_HEX = "fonts/vga8x16.hex") (
+module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 525) (
     // pixel side
     input  logic        clk_pix,
     input  logic [9:0]  cx, cy,         // 800 x 525 raster, picture at 0..639, 0..479
@@ -33,7 +36,9 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex") (
     input  logic [127:0] vf_rdata,
     input  logic        vf_ack
 );
-    localparam int TOP = 40;            // first line of the picture
+    localparam int TOP = LINES == 449 ? 0 : 40;                 // first line of the picture
+    localparam int VS  = LINES == 449 ? 412 : 490;              // vertical sync, two lines
+    localparam int PRE = (TOP + LINES - 32) % LINES;            // the first unit is asked for here
     wire g13   = vid_ctrl[0];
     wire gfx   = g13 || vid_mode[1];
     wire cga2  = vid_mode[4];
@@ -42,7 +47,7 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex") (
     // ── raster position three pixels ahead (the pipeline below is three stages) ──
     wire        wrap = cx >= 10'd797;
     wire [9:0]  hx = wrap ? cx - 10'd797 : cx + 10'd3;
-    wire [9:0]  hy = !wrap ? cy : (cy == 10'd524 ? 10'd0 : cy + 10'd1);
+    wire [9:0]  hy = !wrap ? cy : (cy == 10'(LINES - 1) ? 10'd0 : cy + 10'd1);
     wire [9:0]  ty = hy - 10'(TOP);
     wire        in_y = hy >= 10'(TOP) && hy < 10'(TOP + 400);
     wire        in_x = hx < 10'd640;
@@ -52,9 +57,9 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex") (
 
     always_ff @(posedge clk_pix) begin
         hsync    <= !(cx >= 10'd656 && cx < 10'd752);
-        vsync    <= !(cy >= 10'd490 && cy < 10'd492);
+        vsync    <= (cy >= 10'(VS) && cy < 10'(VS + 2)) == (LINES == 449);    // positive with 400 lines
         blank    <= !(cx < 10'd640 && cy >= 10'(TOP) && cy < 10'(TOP + 400));
-        vretrace <= cy >= 10'd486 && cy < 10'd494;
+        vretrace <= cy >= 10'(VS - 4) && cy < 10'(VS + 4);
     end
 
     // ── ask for the next unit (a text row or a graphics line): unit 0 before the picture,
@@ -67,7 +72,7 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex") (
     wire [7:0]  unit_last = gfx ? 8'd199 : 8'd24;
     always_ff @(posedge clk_pix) begin
         if (hx == 10'd0) begin
-            if (hy == 10'd8) begin fetch_unit <= 8'd0; fetch_tgl <= ~fetch_tgl; end
+            if (hy == 10'(PRE)) begin fetch_unit <= 8'd0; fetch_tgl <= ~fetch_tgl; end
             else if (in_y && unit_start && unit < unit_last) begin fetch_unit <= unit + 8'd1; fetch_tgl <= ~fetch_tgl; end
             if (hy == 10'd0) frame_cnt <= frame_cnt + 6'd1;
         end

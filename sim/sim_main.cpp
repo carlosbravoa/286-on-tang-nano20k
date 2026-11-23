@@ -26,6 +26,9 @@ typedef Vpc286_core Top;         // the core alone, RAM answered directly (faste
 #include <string>
 #include <vector>
 
+#ifndef RASTER_LINES
+#define RASTER_LINES 525
+#endif
 static const double CLK_HZ = 25312500.0;
 static std::vector<uint8_t> ram(8 << 20, 0);
 
@@ -117,6 +120,8 @@ struct Keyboard {
             if (ch == 2) { mbtn = 1; mouse(mbtn, 0, 0); continue; }     // \l: left button down
             if (ch == 3) { mbtn = 0; mouse(mbtn, 0, 0); continue; }     // \u: buttons up
             static const char* sh = ")!@#$%^&*(";
+            if (ch >= 4 && ch <= 7) key = 0x52 - (ch - 4);              // \U \D \L \R: arrow keys
+            else
             if (ch >= 'a' && ch <= 'z') key = 4 + ch - 'a';
             else if (ch >= 'A' && ch <= 'Z') { key = 4 + ch - 'A'; mod = 2; }
             else if (ch >= '1' && ch <= '9') key = 0x1E + ch - '1';
@@ -177,6 +182,10 @@ static std::string unescape(const char* s) {
         else if (*s == '\\' && s[1] == 'm') { r += '\x01'; s++; }
         else if (*s == '\\' && s[1] == 'l') { r += '\x02'; s++; }
         else if (*s == '\\' && s[1] == 'u') { r += '\x03'; s++; }
+        else if (*s == '\\' && s[1] == 'U') { r += '\x04'; s++; }
+        else if (*s == '\\' && s[1] == 'D') { r += '\x05'; s++; }
+        else if (*s == '\\' && s[1] == 'L') { r += '\x06'; s++; }
+        else if (*s == '\\' && s[1] == 'R') { r += '\x07'; s++; }
         else if (*s == '\\' && s[1] == '\\') { r += '\\'; s++; }
         else r += *s;
     }
@@ -245,7 +254,7 @@ int main(int argc, char** argv) {
         if (cx < 640 && cy < 480) { uint8_t* p = &frame[(cy * 640 + cx) * 3]; p[0] = top->rgb >> 16; p[1] = top->rgb >> 8; p[2] = top->rgb; }
         top->clk = 1; top->clk_pix = 1;
         top->eval();
-        if (++cx == 800) { cx = 0; if (++cy == 525) { cy = 0; shown = frame; } }
+        if (++cx == 800) { cx = 0; if (++cy == RASTER_LINES) { cy = 0; shown = frame; } }
         if (u_bit < 0) { if (!top->dbg_tx) { u_bit = 0; u_t = u_time * 1.5; u_byte = 0; } }
         else if ((u_t -= 1) <= 0) {
             u_t += u_time;

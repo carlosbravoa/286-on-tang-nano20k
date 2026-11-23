@@ -60,7 +60,7 @@ module tang_top (
     wire        sd_cs_n;
     assign sd_cs = sd_cs_n;
 
-    pc286_system #(.CLK_HZ(25_312_500), .BIOS_HEX("bios16.hex"), .HID_TABLE("hid_table.hex"), .FONT_HEX("vga8x16.hex")) machine (
+    pc286_system #(.CLK_HZ(25_312_500), .BIOS_HEX("bios16.hex"), .HID_TABLE("hid_table.hex"), .FONT_HEX("vga8x16.hex"), .LINES(video_mode::LINES)) machine (
         .clk(clk), .reset(reset), .clk_pix(clk_pix), .cx(cx), .cy(cy), .rgb(rgb), .hsync(hsync), .vsync(vsync),
         .speaker(speaker), .opl_snd(opl_snd), .opl_sample(opl_sample), .kbd_rx(kbd_rx), .sd_sck(sd_clk), .sd_mosi(sd_mosi), .sd_cs_n(sd_cs_n), .sd_miso(sd_miso),
         .dbg_tx(bl616_uart_tx), .halted(halted),
@@ -105,7 +105,7 @@ module tang_top (
     assign audio[1] = audio[0];
     wire [2:0] tmds;
     wire       tmds_clock;
-    hdmi #(.VIDEO_ID_CODE(1), .DVI_OUTPUT(1'b0), .VIDEO_REFRESH_RATE(60.0), .AUDIO_RATE(48000),
+    hdmi #(.VIDEO_ID_CODE(video_mode::LINES == 449 ? 0 : 1), .DVI_OUTPUT(1'b0), .VIDEO_REFRESH_RATE(60.0), .AUDIO_RATE(48000),
            .AUDIO_BIT_WIDTH(16), .START_X(0), .START_Y(0)) hdmi_core (
         .clk_pixel_x5(clk_5x), .clk_pixel(clk_pix), .clk_audio(smp_tick),
         .reset(hdmi_reset), .serializer_reset(!hdmi_rst_n),

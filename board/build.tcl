@@ -18,6 +18,14 @@ foreach f [lsort [glob "$root/rtl/board/hdmi/*.sv"]] { add_file $f }
 add_file "$root/rtl/board/sdram_nestang.v"
 add_file "$root/rtl/board/gw2ar_sdram.sv"
 add_file "$root/rtl/board/plls.v"
+# the raster: "make bitstream LINES=449" for 640x400 at 70 Hz (default 525: 640x480 at 60 Hz)
+set lines 525
+if {[info exists ::env(LINES)] && $::env(LINES) ne ""} { set lines $::env(LINES) }
+file mkdir "$root/build/gowin"
+set fh [open "$root/build/gowin/video_mode_pkg.sv" w]
+puts $fh "package video_mode; localparam int LINES = $lines; endpackage"
+close $fh
+add_file "$root/build/gowin/video_mode_pkg.sv"
 add_file "$root/rtl/board/tang_top.sv"
 add_file "$root/board/tang_nano_20k.cst"
 add_file "$root/board/tang_nano_20k.sdc"
