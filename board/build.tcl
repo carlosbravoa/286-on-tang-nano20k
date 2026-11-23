@@ -9,9 +9,18 @@ foreach f {microcode/generated/spk286_microcode_pkg.sv microcode/generated/spk28
            microcode/generated/spk286_microcode_sync_rom.sv rtl/spk286_protected_pkg.sv rtl/spk286_tss_pkg.sv} {
     add_file "$spk/$f"
 }
-foreach f [lsort [glob "$spk/rtl/*.sv"]] { if {![string match *_pkg.sv $f]} { add_file $f } }
+# The CPU without the hardware task switch and LOADALL, unless FULLCPU=1 (see rtl/cpu_trim)
+set full [expr {[info exists ::env(FULLCPU)] && $::env(FULLCPU) ne ""}]
+set left_out {spk286_task_switch_service.sv spk286_loadall_service.sv spk286_tss_service.sv
+              spk286_tss_descriptor_service.sv spk286_task_segment_service.sv}
+foreach f [lsort [glob "$spk/rtl/*.sv"]] {
+    if {[string match *_pkg.sv $f]} continue
+    if {!$full && [lsearch $left_out [file tail $f]] >= 0} continue
+    add_file $f
+}
+if {!$full} { foreach f [lsort [glob "$root/rtl/cpu_trim/*.sv"]] { add_file $f } }
 foreach f [lsort [glob "$root/rtl/jtopl/*.v"]] { add_file $f }
-foreach f {pic8259 pit8254 kbd8042 kbd_ch9350 spi_port adlib pc286_core video sdram_bridge uart_tx_fifo pc286_system} {
+foreach f {pic8259 pit8254 kbd8042 kbd_ch9350 spi_port adlib sblaster ega_planes pc286_core video sdram_bridge uart_tx_fifo pc286_system} {
     add_file "$root/rtl/$f.sv"
 }
 foreach f [lsort [glob "$root/rtl/board/hdmi/*.sv"]] { add_file $f }

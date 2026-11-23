@@ -5,6 +5,10 @@
 //   text      80x25 or 40x25 cells of 8x16 pixels, cells at B8000h           (3D8h bit 1 = 0)
 //   CGA       320x200 in 4 colours or 640x200 in 2, at B8000h / BA000h       (3D8h bit 1 = 1)
 //   mode 13h  320x200 in 256 colours, one byte a pixel at A0000h             (vid_ctrl bit 0)
+//   planes    16 colours from four planes (EGA/VGA), see ega_planes.sv         (vid_ctrl bit 1)
+//             bit 2 = 640 wide (else 320); bits 4-3 = lines: 0 200, 1 350, 2 480 (480: only
+//             with LINES = 525). The picture starts at the CRTC start address. A pixel's
+//             four bits choose one of the 16 attribute palette registers (3C0h).
 // 200-line modes show every line twice. Video memory is ordinary RAM: a line (or a row of
 // text) is read, 16 bytes at a time, into a line buffer shortly before it is shown (cpu clock side) and shown
 // from there (pixel clock side). Every colour goes through the VGA palette (3C6h-3C9h).
@@ -26,7 +30,8 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
     input  logic [4:0]  cursor_end,
     input  logic [7:0]  vid_mode,       // 3D8h: 0 80 columns, 1 graphics, 2 mono palette, 3 on, 4 640 wide, 5 blink
     input  logic [7:0]  vid_color,      // 3D9h: 3-0 background/border, 4 bright, 5 palette
-    input  logic [7:0]  vid_ctrl,       // bit 0: mode 13h
+    input  logic [7:0]  vid_ctrl,       // bit 0: mode 13h; 1: planes, 2: 640 wide, 4-3: lines
+    input  logic        attr_reset,     // 3DAh was read: 3C0h takes an index next
     input  logic        vio_wr, vio_rd, // ports 3C0h-3CFh
     input  logic [3:0]  vio_addr,
     input  logic [7:0]  vio_wdata,
@@ -38,9 +43,16 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
 );
     localparam int TOP = LINES == 449 ? 0 : 40;                 // first line of the picture
     localparam int VS  = LINES == 449 ? 412 : 490;              // vertical sync, two lines
-    localparam int PRE = (TOP + LINES - 32) % LINES;            // the first unit is asked for here
     wire g13   = vid_ctrl[0];
-    wire gfx   = g13 || vid_mode[1];
+    wire planar = vid_ctrl[1];
+    wire pwide  = vid_ctrl[2];
+    wire p350   = planar && vid_ctrl[4:3] == 2'd1;
+    wire p480   = planar && vid_ctrl[4:3] == 2'd2;
+    wire gfx   = g13 || vid_mode[1] || planar;
+    // where the picture is: 400 lines, or 350, or all 480
+    wire [9:0] top    = p480 ? 10'd0 : p350 ? 10'd65 : 10'(TOP);
+    wire [9:0] height = p480 ? 10'd480 : p350 ? 10'd350 : 10'd400;
+    wire [9:0] pre    = top == 0 ? 10'(LINES - 32) : top - 10'd32;   // the first unit is asked for here
     wire cga2  = vid_mode[4];
     wire col80 = vid_mode[0];
 
@@ -48,12 +60,12 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
     wire        wrap = cx >= 10'd797;
     wire [9:0]  hx = wrap ? cx - 10'd797 : cx + 10'd3;
     wire [9:0]  hy = !wrap ? cy : (cy == 10'(LINES - 1) ? 10'd0 : cy + 10'd1);
-    wire [9:0]  ty = hy - 10'(TOP);
-    wire        in_y = hy >= 10'(TOP) && hy < 10'(TOP + 400);
+    wire [9:0]  ty = hy - top;
+    wire        in_y = hy >= top && hy < top + height;
     wire        in_x = hx < 10'd640;
     wire [4:0]  row = ty[8:4];
     wire [3:0]  scan = ty[3:0];
-    wire [7:0]  gline = ty[8:1];        // graphics line 0..199
+    wire [8:0]  gline = (p350 || p480) ? ty[8:0] : {1'b0, ty[8:1]};   // graphics line
 
     always_ff @(posedge clk_pix) begin
         hsync    <= !(cx >= 10'd656 && cx < 10'd752);
@@ -65,15 +77,15 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
     // ── ask for the next unit (a text row or a graphics line): unit 0 before the picture,
     //    unit n+1 when unit n starts ──
     logic       fetch_tgl;
-    logic [7:0] fetch_unit;
+    logic [8:0] fetch_unit;
     logic [5:0] frame_cnt;
-    wire        unit_start = gfx ? !ty[0] : scan == 4'd0;
-    wire [7:0]  unit = gfx ? gline : {3'b0, row};
-    wire [7:0]  unit_last = gfx ? 8'd199 : 8'd24;
+    wire        unit_start = (p350 || p480) ? 1'b1 : gfx ? !ty[0] : scan == 4'd0;
+    wire [8:0]  unit = gfx ? gline : {4'b0, row};
+    wire [8:0]  unit_last = p480 ? 9'd479 : p350 ? 9'd349 : gfx ? 9'd199 : 9'd24;
     always_ff @(posedge clk_pix) begin
         if (hx == 10'd0) begin
-            if (hy == 10'(PRE)) begin fetch_unit <= 8'd0; fetch_tgl <= ~fetch_tgl; end
-            else if (in_y && unit_start && unit < unit_last) begin fetch_unit <= unit + 8'd1; fetch_tgl <= ~fetch_tgl; end
+            if (hy == pre) begin fetch_unit <= 9'd0; fetch_tgl <= ~fetch_tgl; end
+            else if (in_y && unit_start && unit < unit_last) begin fetch_unit <= unit + 9'd1; fetch_tgl <= ~fetch_tgl; end
             if (hy == 10'd0) frame_cnt <= frame_cnt + 6'd1;
         end
     end
@@ -86,7 +98,7 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
     logic [15:0] tb_wdata, cell_q;
     logic [31:0] gb_wdata, gword_q;
     wire  [6:0]  tcol = col80 ? hx[9:3] : {1'b0, hx[9:4]};
-    wire  [6:0]  gcol = g13 ? hx[9:3] : {2'b0, hx[9:5]};
+    wire  [6:0]  gcol = planar ? (pwide ? hx[9:3] : {1'b0, hx[9:4]}) : g13 ? hx[9:3] : {2'b0, hx[9:5]};
     always_ff @(posedge clk) if (tb_we) textbuf[tb_waddr] <= tb_wdata;
     always_ff @(posedge clk) if (gb_we) gbuf[gb_waddr] <= gb_wdata;
     always_ff @(posedge clk_pix) cell_q  <= textbuf[{row[0], tcol}];
@@ -97,27 +109,30 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
     logic [1:0]  fst_q;                 // 0 idle, 1 read, 2 store (low half), 3 store high half
     logic [6:0]  word_q, last_q;
     logic [15:0] off_q;                 // byte offset of the unit in its segment
-    logic        seg_a_q, gfx_q, buf_q;
-    wire  [7:0]  u = fetch_unit;
+    logic        seg_a_q, gfx_q, buf_q, pl_q;
+    wire  [7:0]  u = fetch_unit[7:0];
+    wire  [15:0] pl_off    = crtc_start + (pwide ? {1'b0, fetch_unit, 6'b0} + {3'b0, fetch_unit, 4'b0}
+                                                  : {2'b0, fetch_unit, 5'b0} + {4'b0, fetch_unit, 3'b0});
     wire  [15:0] text_cell = crtc_start + (col80 ? {3'b0, u, 6'b0} + {5'b0, u, 4'b0} : {4'b0, u, 5'b0} + {6'b0, u, 3'b0});
     wire  [15:0] cga_off   = {2'b0, u[0], 13'b0} + {3'b0, u[7:1], 6'b0} + {5'b0, u[7:1], 4'b0};
     wire  [15:0] g13_off   = {u, 8'b0} + {2'b0, u, 6'b0};
-    wire  [13:0] cur_word  = off_q[15:2] + 14'(word_q);              // the word wanted now
+    wire  [15:0] cur_word  = (pl_q ? off_q : {2'b0, off_q[15:2]}) + 16'(word_q);   // the word wanted now
     wire  [31:0] data      = vf_rdata[{cur_word[1:0], 5'b0} +: 32];   // stays until the next read
     wire  [7:0]  idx_lo = {word_q, 1'b0} - {7'b0, off_q[1]};         // text: cell number of the low half
     wire  [7:0]  idx_hi = idx_lo + 8'd1;
     wire         last_word = word_q == last_q;
     wire  [1:0]  next = last_word ? 2'd0 : cur_word[1:0] == 2'd3 ? 2'd1 : 2'd2;   // after this word
     assign vf_req  = fst_q == 2'd1;
-    assign vf_addr = seg_a_q ? {7'h0A, cur_word[13:2], 4'b0} : {8'h17, cur_word[12:2], 4'b0};   // A0000h or B8000h
+    assign vf_addr = pl_q ? {5'h1F, cur_word[15:2], 4'b0}             // the planes, A0000h or B8000h
+                   : seg_a_q ? {7'h0A, cur_word[13:2], 4'b0} : {8'h17, cur_word[12:2], 4'b0};
     always_ff @(posedge clk) begin
         tgl_s <= {tgl_s[1:0], fetch_tgl};
         tb_we <= 1'b0; gb_we <= 1'b0;
         case (fst_q)
             2'd0: if (tgl_s[2] != tgl_s[1]) begin
-                      gfx_q <= gfx; seg_a_q <= g13; buf_q <= u[0]; word_q <= '0; fst_q <= 2'd1;
-                      off_q  <= g13 ? g13_off : gfx ? cga_off : {text_cell[14:0], 1'b0};
-                      last_q <= g13 ? 7'd79 : gfx ? 7'd19 : 7'd40;
+                      gfx_q <= gfx; seg_a_q <= g13; pl_q <= planar; buf_q <= u[0]; word_q <= '0; fst_q <= 2'd1;
+                      off_q  <= planar ? pl_off : g13 ? g13_off : gfx ? cga_off : {text_cell[14:0], 1'b0};
+                      last_q <= planar ? (pwide ? 7'd79 : 7'd39) : g13 ? 7'd79 : gfx ? 7'd19 : 7'd40;
                   end
             2'd1: if (vf_ack) fst_q <= 2'd2;
             2'd2: if (gfx_q) begin
@@ -166,7 +181,21 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
         end
         if (reset) begin dac_wph_q <= 2'd0; dac_rph_q <= 2'd0; end
     end
+    // the attribute palette: 3C0h takes an index, then the value (16 registers of 6 bits)
+    logic [5:0] attr [0:15];
+    logic [4:0] attr_idx_q;
+    logic       attr_ff_q;
+    always_ff @(posedge clk) begin
+        if (vio_wr && vio_addr == 4'h0) begin
+            attr_ff_q <= !attr_ff_q;
+            if (!attr_ff_q) attr_idx_q <= vio_wdata[4:0];
+            else if (!attr_idx_q[4]) attr[attr_idx_q[3:0]] <= vio_wdata[5:0];
+        end
+        if (attr_reset || reset) attr_ff_q <= 1'b0;
+    end
     always_comb case (vio_addr)
+        4'h0: vio_rdata = {3'b001, attr_idx_q};
+        4'h1: vio_rdata = {2'b00, attr[attr_idx_q[3:0]]};
         4'h6: vio_rdata = 8'hFF;
         4'h7: vio_rdata = 8'h03;
         4'h8: vio_rdata = dac_widx_q;
@@ -189,11 +218,13 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
 
     // stage 1 -> 2: the pixel of a graphics mode, as a palette index
     logic [7:0] gbyte, gidx;
+    wire  [2:0] pbit = ~(pwide ? hx1_q[2:0] : hx1_q[3:1]);     // planes: bit 7 is the left pixel
     logic [1:0] c2;
     always_comb begin
         gbyte = g13 ? gword_q[{hx1_q[2:1], 3'b0} +: 8] : gword_q[{hx1_q[4:3], 3'b0} +: 8];
         c2    = gbyte[{~hx1_q[2:1], 1'b0} +: 2];
-        if (g13) gidx = gbyte;
+        if (planar) gidx = {2'b00, attr[{gword_q[5'd24 + pbit], gword_q[5'd16 + pbit], gword_q[5'd8 + pbit], gword_q[{2'b00, pbit}]}]};
+        else if (g13) gidx = gbyte;
         else if (cga2) gidx = gbyte[3'd7 - hx1_q[2:0]] ? {4'b0, vid_color[3:0]} : 8'h00;
         else if (c2 == 2'd0) gidx = {4'b0, vid_color[3:0]};
         else if (vid_mode[2]) gidx = {4'b0, vid_color[4], c2 == 2'd1 ? 3'd3 : c2 == 2'd2 ? 3'd4 : 3'd7};

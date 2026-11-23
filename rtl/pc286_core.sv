@@ -40,7 +40,14 @@ module pc286_core #(
     output logic [4:0]  cursor_end,
     output logic [7:0]  vid_mode,       // port 3D8h
     output logic [7:0]  vid_color,      // port 3D9h
-    output logic [7:0]  vid_ctrl,       // port 0EAh: bit 0 = mode 13h
+    output logic [7:0]  vid_ctrl,       // port 0EAh: bit 0 = mode 13h, bit 1 = 16-colour planes (see video.sv)
+    output logic        attr_reset,     // 3DAh was read
+    output logic        px_req, px_we,  // the EGA planes, to the bridge
+    output logic [15:0] px_addr,
+    output logic [31:0] px_wdata,
+    output logic [3:0]  px_wmask,
+    input  logic [31:0] px_rdata,
+    input  logic        px_ack,
     output logic        vio_wr, vio_rd, // ports 3C0h-3CFh, in the video block
     output logic [3:0]  vio_addr,
     output logic [7:0]  vio_wdata,
@@ -49,7 +56,11 @@ module pc286_core #(
     input  logic        vid_vsync,      // 3DAh bit 3
     // sound
     output logic        speaker,
-    output logic signed [15:0] opl_snd, // AdLib
+    output logic signed [15:0] opl_snd, // AdLib and Sound Blaster together
+    output logic        dm_req,         // a byte of RAM for the Sound Blaster
+    output logic [22:0] dm_addr,
+    input  logic [7:0]  dm_rdata,
+    input  logic        dm_ack,
     output logic        opl_sample,
     // simulation / debug
     output logic        dbg_char_valid,
@@ -108,7 +119,12 @@ module pc286_core #(
         rom_ack_q <= is_rom && !rom_ack_q;
     end
 
-    assign mem_req   = is_mem && !is_rom;
+    // with the 16-colour planes on, A0000-AFFFF is the planes, not RAM
+    wire is_pl = is_mem && vid_ctrl[1] && phys[23:16] == 8'h0A;
+    logic [15:0] pl_rdata;
+    logic [7:0]  pl_r;
+    logic        pl_ack;
+    assign mem_req   = is_mem && !is_rom && !is_pl;
     assign mem_fetch = status == C_FETCH;
     assign mem_we    = bus_write;
     assign mem_addr  = {phys[23:1], 1'b0};
@@ -142,10 +158,15 @@ module pc286_core #(
     wire sel_spi  = io_addr[15:1] == 15'h0070;          // 0E0-0E1
     wire sel_mouse = io_addr[15:2] == 14'h0039;        // 0E4-0E7
     wire sel_map  = io_addr[15:2] == 14'h003B;          // 0EC-0EF
-    wire sel_opl  = io_addr[15:1] == 15'h01C4;          // 388-389
+    wire sel_sb   = io_addr[15:4] == 12'h022;           // 220-22F: Sound Blaster
+    wire sel_dma  = io_addr[15:4] == 12'h000;           // 000-00F: its DMA channel
+    wire sel_dpg  = io_addr == 16'h0083;
+    wire sel_opl  = io_addr[15:1] == 15'h01C4 || io_addr[15:1] == 15'h0114;   // 388-389, and 228-229
     wire sel_dbg  = io_addr == 16'h00E9;
     wire sel_vctl = io_addr == 16'h00EA;
     wire sel_vga  = io_addr[15:4] == 12'h03C;         // 3C0-3CF
+    wire sel_seq  = io_addr[15:1] == 15'h01E2;          // 3C4-3C5
+    wire sel_gc   = io_addr[15:1] == 15'h01E7;          // 3CE-3CF
     wire sel_crtc = io_addr[15:1] == 15'h01EA;          // 3D4-3D5
     wire sel_3d8  = io_addr == 16'h03D8;
     wire sel_3d9  = io_addr == 16'h03D9;
@@ -157,7 +178,8 @@ module pc286_core #(
     logic intr2, inta_second_q, pic_ack;
     logic [7:0] inta_vec_q;
     logic irq_timer, irq_kbd;
-    assign irq1_lines = {5'b0, intr2, irq_kbd, irq_timer};
+    logic irq_sb;
+    assign irq1_lines = {irq_sb, 4'b0, intr2, irq_kbd, irq_timer};   // IRQ 7: the Sound Blaster
     logic m_new_q;
     logic [7:0] m_dx_q, m_dy_q, m_dx_lat, m_dy_lat;
     logic [2:0] m_btn_q;
@@ -186,7 +208,20 @@ module pc286_core #(
 
     logic [7:0] opl_status;
     adlib #(.CLK_HZ(CLK_HZ)) adlib (.clk, .reset, .wr(io_wr && sel_opl), .a0(io_addr[0]), .wdata(io_wdata),
-        .status(opl_status), .snd(opl_snd), .sample(opl_sample));
+        .status(opl_status), .snd(fm_snd), .sample(fm_sample));
+
+    // Sound Blaster; its sound is added to the AdLib's at every AdLib sample
+    logic signed [15:0] fm_snd;
+    logic        fm_sample;
+    logic [7:0]  sb_r, sb_dac;
+    sblaster #(.CLK_HZ(CLK_HZ)) sb (.clk, .reset, .sel_dsp(sel_sb && !sel_opl), .sel_dma, .sel_page(sel_dpg),
+        .a(io_addr[3:0]), .wr(io_wr), .rd(io_rd), .wdata(io_wdata), .rdata(sb_r), .irq(irq_sb),
+        .dm_req, .dm_addr, .dm_rdata, .dm_ack, .dac(sb_dac));
+    wire signed [16:0] snd_sum = fm_snd + $signed({~sb_dac[7], sb_dac[6:0], 6'b0});
+    always_ff @(posedge clk) begin
+        opl_sample <= fm_sample;
+        if (fm_sample) opl_snd <= snd_sum[16] != snd_sum[15] ? {snd_sum[16], {15{!snd_sum[16]}}} : snd_sum[15:0];
+    end
 
     // keyboard
     logic [7:0] kbd_r, sc_data, mouse_dx, mouse_dy;
@@ -202,6 +237,11 @@ module pc286_core #(
     logic [7:0] spi_r;
     spi_port spi (.clk, .reset, .a0(io_addr[0]), .sel(is_io && sel_spi), .wr(io_wr && sel_spi), .rd(io_rd && sel_spi),
         .wdata(io_wdata), .rdata(spi_r), .io_wait, .sck(sd_sck), .mosi(sd_mosi), .miso(sd_miso), .cs_n(sd_cs_n));
+
+    ega_planes planes (.clk, .reset, .sel_seq, .sel_gc, .a0(io_addr[0]), .wr(io_wr), .io_wdata, .io_rdata(pl_r),
+        .req(is_pl), .we(bus_write), .addr({phys[15:1], 1'b0}), .be(mem_be), .wdata(cpu_dout), .rdata(pl_rdata), .ack(pl_ack),
+        .px_req, .px_we, .px_addr, .px_wdata, .px_wmask, .px_rdata, .px_ack);
+    assign attr_reset = io_rd && sel_3da;
 
     // video registers
     logic [4:0] crtc_idx_q;
@@ -230,9 +270,11 @@ module pc286_core #(
         if (sel_mouse) io_rdata = io_addr[1] ? m_dy_lat : io_addr[0] ? m_dx_lat : {m_new_q, 4'b0, m_btn_q};
         if (sel_map)  io_rdata = io_addr[1] ? {map_q[map_sel_q][9], 6'b0, map_q[map_sel_q][8]}
                                : io_addr[0] ? map_q[map_sel_q][7:0] : {6'b0, map_sel_q};
+        if (sel_sb || sel_dma || sel_dpg) io_rdata = sb_r;
         if (sel_opl)  io_rdata = opl_status;
         if (sel_vctl) io_rdata = vid_ctrl;
         if (sel_vga)  io_rdata = vio_rdata;
+        if (sel_seq || sel_gc) io_rdata = pl_r;
         if (sel_3d8)  io_rdata = vid_mode;
         if (sel_3d9)  io_rdata = vid_color;
         if (sel_3da)  io_rdata = {4'hF, vsync_s[2], 2'b00, blank_s[2]};
@@ -308,9 +350,10 @@ module pc286_core #(
     end
 
     // ── CPU ready and data in ──
-    assign ready = is_rom ? rom_ack_q : is_mem ? mem_ack : is_io ? io_done : 1'b1;
+    assign ready = is_rom ? rom_ack_q : is_pl ? pl_ack : is_mem ? mem_ack : is_io ? io_done : 1'b1;
     always_comb begin
         if (is_rom)       cpu_din = rom_q;
+        else if (is_pl)   cpu_din = pl_rdata;
         else if (is_mem)  cpu_din = mem_rdata;
         else if (is_inta) cpu_din = {8'h00, inta_second_q ? inta_vec_q : 8'hFF};
         else              cpu_din = io_word ? {io_rdata, io_lo_q} : {io_rdata, io_rdata};

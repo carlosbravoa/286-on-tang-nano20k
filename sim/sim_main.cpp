@@ -13,6 +13,7 @@
 //     --ppm FILE         (system build) write the last complete video frame as a picture
 #ifdef SYSTEM
 #include "Vpc286_system.h"
+#include "Vpc286_system___024root.h"
 typedef Vpc286_system Top;       // the whole system: SDRAM bridge and video included
 #else
 #include "Vpc286_core.h"
@@ -223,7 +224,7 @@ int main(int argc, char** argv) {
     Top* top = new Top;
     top->reset = 1; top->kbd_rx = 1; top->sd_miso = 1;
 #ifdef SYSTEM
-    long st_busy = 0, st_wr = 0, st_burst = 0, st_rd = 0; bool sd_prev = false;
+    long st_busy = 0, st_wr = 0, st_burst = 0, st_rd = 0, st_rom = 0, st_mem = 0, st_acks = 0, st_io = 0; bool sd_prev = false;
     std::vector<uint8_t> frame(640 * 480 * 3, 0), shown(640 * 480 * 3, 0);
     int cx = 0, cy = 0, sdwait = 0; bool complete = false;
     // the debug text comes out of the serial port: read it back
@@ -238,6 +239,10 @@ int main(int argc, char** argv) {
 #ifdef SYSTEM
         // SDRAM controller: a 32-bit word per request (four in a burst read), 'complete' held until the request goes
         if (top->sd_req) st_busy++;
+        { auto* r = top->rootp;
+          if (r->pc286_system__DOT__core__DOT__is_rom) st_rom++;
+          else if (r->pc286_system__DOT__core__DOT__is_mem) { st_mem++; if (r->pc286_system__DOT__mem_ack) st_acks++; }
+          else if (r->pc286_system__DOT__core__DOT__is_io) st_io++; }
         if (top->sd_req && !sd_prev) { if (top->sd_write) st_wr++; else if (top->sd_burst) st_burst++; else st_rd++; }
         sd_prev = top->sd_req;
         if (!top->sd_req) { complete = false; sdwait = 0; }
@@ -309,6 +314,9 @@ int main(int argc, char** argv) {
     for (long a : peeks) { printf("%06lX:", a); for (int i = 0; i < 16; i++) printf(" %02X", ram[a + i]); printf("\n"); }
     if (screen) print_screen();
 #ifdef SYSTEM
+    printf("[CPU: %.1f%% of the time in RAM accesses (%ld, %.2f cycles each), %.1f%% ROM, %.1f%% I/O, %.1f%% no bus access]\n",
+           100.0 * st_mem / cycles, st_acks, st_acks ? (double)st_mem / st_acks : 0.0, 100.0 * st_rom / cycles, 100.0 * st_io / cycles,
+           100.0 * (cycles - st_mem - st_rom - st_io) / cycles);
     printf("[RAM: waiting %.1f%% of the time; %ld 16-byte reads (video and code), %ld data reads, %ld writes]\n",
            100.0 * st_busy / cycles, st_burst, st_rd, st_wr);
     if (ppm) { FILE* f = fopen(ppm, "wb"); fprintf(f, "P6 640 480 255\n"); fwrite(shown.data(), 1, shown.size(), f); fclose(f); }

@@ -4,11 +4,17 @@
 #   make card           the SD card image, with what is in dos-disk/
 #   make bitstream      Gowin build for the Tang Nano 20K (never flashes); LINES=449: 640x400 at 70 Hz
 S := ref/SPK286
+# The CPU without the hardware task switch and LOADALL (rtl/cpu_trim has stand-ins that fault);
+# FULLCPU=1 builds the whole SPK286.
+ifndef FULLCPU
+CPU_OUT := $(addprefix $(S)/rtl/spk286_,task_switch_service.sv loadall_service.sv tss_service.sv tss_descriptor_service.sv task_segment_service.sv)
+CPU_IN  := $(wildcard rtl/cpu_trim/*.sv)
+endif
 CPU := $(S)/microcode/generated/spk286_microcode_pkg.sv $(S)/microcode/generated/spk286_microcode_rom.sv \
        $(S)/microcode/generated/spk286_microcode_sync_rom.sv $(S)/rtl/spk286_protected_pkg.sv $(S)/rtl/spk286_tss_pkg.sv \
-       $(filter-out %_pkg.sv,$(wildcard $(S)/rtl/*.sv))
+       $(filter-out %_pkg.sv $(CPU_OUT),$(wildcard $(S)/rtl/*.sv)) $(CPU_IN)
 SYS := rtl/video.sv rtl/sdram_bridge.sv rtl/uart_tx_fifo.sv rtl/pc286_system.sv
-RTL := rtl/pic8259.sv rtl/pit8254.sv rtl/kbd8042.sv rtl/kbd_ch9350.sv rtl/spi_port.sv $(wildcard rtl/jtopl/*.v) rtl/adlib.sv rtl/pc286_core.sv
+RTL := rtl/pic8259.sv rtl/pit8254.sv rtl/kbd8042.sv rtl/kbd_ch9350.sv rtl/spi_port.sv $(wildcard rtl/jtopl/*.v) rtl/adlib.sv rtl/sblaster.sv rtl/ega_planes.sv rtl/pc286_core.sv
 BIOS_SRC := $(wildcard bios/*.asm)
 
 sim: build/sim build/bios16.hex build/hid_table.hex
@@ -39,7 +45,7 @@ build/simsys: $(RTL) $(SYS) $(CPU) sim/sim_main.cpp build/bios16.hex build/hid_t
 	    $(CPU) $(RTL) $(SYS) sim/sim_main.cpp -CFLAGS "-O3 -march=native -DSYSTEM" > build/verilator_sys.log 2>&1 || (tail -40 build/verilator_sys.log; false)
 
 bitstream: build/bios16.hex build/hid_table.hex
-	LINES=$(LINES) QT_QPA_PLATFORM=offscreen $(HOME)/Documents/gowin/IDE/bin/gw_sh.sh board/build.tcl > build/gowin.log 2>&1 || (grep ERROR build/gowin.log; false)
+	FULLCPU=$(FULLCPU) LINES=$(LINES) QT_QPA_PLATFORM=offscreen $(HOME)/Documents/gowin/IDE/bin/gw_sh.sh board/build.tcl > build/gowin.log 2>&1 || (grep ERROR build/gowin.log; false)
 	@grep -A4 "Resource Usage Summary" -m1 build/gowin/pc286/impl/pnr/pc286.rpt.txt | tail -3
 
 # The SD card image: C: with FreeDOS, the XMS driver and everything in dos-disk/ (not in git:

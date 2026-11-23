@@ -379,7 +379,7 @@ int15:  sti
         mov ah, 0x86                ; not supported
 .cy:    stc
         retf 2
-.ext:   mov ax, 7168                ; extended memory: 8 MB less the first
+.ext:   mov ax, 6912                ; extended memory: 8 MB less the first, less the EGA planes (top 256 KB)
 .okax:  clc
         retf 2
 .ok:    xor ah, ah

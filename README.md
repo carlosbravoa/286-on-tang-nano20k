@@ -11,21 +11,23 @@ Status: work in progress. In simulation the machine boots FreeDOS from an SD car
 
 | Part | How |
 |---|---|
-| CPU | [SPK286](https://github.com/aitorgomez-net/SPK286), unmodified, in `ref/SPK286` |
-| RAM | the board's 8 MB SDRAM: 640 KB, plain RAM at C0000-FBFFF, 7 MB above 1 MB; a 32 KB cache in block RAM in front of it (`rtl/sdram_bridge.sv`) |
+| CPU | [SPK286](https://github.com/aitorgomez-net/SPK286), unmodified, in `ref/SPK286`. Two of its blocks are left out of the build and replaced by stand-ins that fault (`rtl/cpu_trim`): the hardware task switch and LOADALL. That frees about 3,900 logic cells; `FULLCPU=1` builds the whole CPU |
+| RAM | the board's 8 MB SDRAM: 640 KB, plain RAM at C0000-FBFFF, 6.75 MB above 1 MB; a 32 KB cache in block RAM in front of it (`rtl/sdram_bridge.sv`) |
 | BIOS | our own (`bios/`), 16 KB in block RAM at FC000 |
-| Video | text 40x25 and 80x25, CGA 320x200x4 and 640x200x2, VGA 320x200x256 (mode 13h) with the VGA palette; 640x480 at 60 Hz on HDMI, or 640x400 at 70 Hz as a VGA card sends it (`make bitstream LINES=449`) (`rtl/video.sv`) |
+| Video | text 40x25 and 80x25, CGA 320x200x4 and 640x200x2, VGA 320x200x256 (mode 13h) with the VGA palette, EGA/VGA 16 colours in four planes (modes 0Dh, 0Eh, 10h, 12h: write modes 0-3, set/reset, bit mask, functions, both read modes, start address, palette registers; `rtl/ega_planes.sv`); 640x480 at 60 Hz on HDMI, or 640x400 at 70 Hz as a VGA card sends it (`make bitstream LINES=449`) (`rtl/video.sv`) |
 | Keyboard | CH9350 (or a Pico acting as one) on pin 53, as on the Atari816; turned into set 1 scancodes at ports 60h/64h |
 | Mouse | the same CH9350; the driver (INT 33h) is in the BIOS |
 | Disk | SD card on an SPI port (E0h/E1h); the BIOS reads and writes sectors itself |
 | AdLib | OPL2 at 388h/389h ([JTOPL](https://github.com/jotego/jtopl), `rtl/jtopl`), mixed with the speaker into the HDMI sound |
+| Sound Blaster | version 2.0 at 220h, IRQ 7, DMA 1: 8-bit sound, direct or through DMA (`rtl/sblaster.sv`, with the one DMA channel it needs); no recording, MIDI or compressed sound |
 | Timer, interrupts, speaker | 8254 (channels 0 and 2), two 8259s, port 61h; the speaker is heard over HDMI |
 | Memory window | D0000-DFFFF can show any four 16 KB pages of the 8 MB (ports ECh-EEh): the BIOS copies to and from extended memory with it (INT 15h AH=87h), expanded memory will use it |
 
 There is no second processor: everything the machine needs is logic or x86 code in the BIOS.
 
-Not there yet: EGA/VGA 16-colour modes, Sound Blaster, expanded memory, a clock that
-keeps the date.
+Not there yet: expanded memory, a clock that keeps the date. In the 16-colour modes: no smooth
+scrolling by pixels, no split screen, no data rotate; BIOS text there is 8x8 in the top 25 rows.
+The planes take the top 256 KB of the SDRAM (6.75 MB of extended memory are left).
 
 ## SD card
 

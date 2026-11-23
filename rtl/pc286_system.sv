@@ -43,12 +43,18 @@ module pc286_system #(
     logic [7:0]  vid_mode, vid_color, vid_ctrl, dbg_char, vio_wdata, vio_rdata;
     logic [3:0]  vio_addr;
     logic        vio_wr, vio_rd;
+    logic        dm_req, dm_ack, attr_reset, px_req, px_we, px_ack;
+    logic [15:0] px_addr;
+    logic [31:0] px_wdata, px_rdata;
+    logic [3:0]  px_wmask;
+    logic [22:0] dm_addr;
+    logic [7:0]  dm_rdata;
 
     pc286_core #(.CLK_HZ(CLK_HZ), .BIOS_HEX(BIOS_HEX), .HID_TABLE(HID_TABLE)) core (.*);
 
     video #(.FONT_HEX(FONT_HEX), .LINES(LINES)) video (.clk_pix, .cx, .cy, .rgb, .hsync, .vsync,
         .blank(vid_blank), .vretrace(vid_vsync), .clk, .reset, .crtc_start, .crtc_cursor,
-        .cursor_start, .cursor_end, .vid_mode, .vid_color, .vid_ctrl,
+        .cursor_start, .cursor_end, .vid_mode, .vid_color, .vid_ctrl, .attr_reset,
         .vio_wr, .vio_rd, .vio_addr, .vio_wdata, .vio_rdata, .vf_req, .vf_addr, .vf_rdata, .vf_ack);
 
     sdram_bridge bridge (.*);

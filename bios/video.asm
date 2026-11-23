@@ -50,6 +50,10 @@ mode_table:
         db 0x2E, 40, 0x30, 0x05
         db 0x1E, 80, 0x3F, 0x06
         db 0x0A, 40, 0x30, 0x13
+        db 0x0A, 40, 0x30, 0x0D     ; 16 colours in four planes: 320x200
+        db 0x0A, 80, 0x30, 0x0E     ; 640x200
+        db 0x0A, 80, 0x30, 0x10     ; 640x350
+        db 0x0A, 80, 0x30, 0x12     ; 640x480
 
 ; DI = address of the cell at page BH, row DH, column DL
 cell_addr:
@@ -121,12 +125,24 @@ set_curtype:
 
 v_setmode:
         and al, 0x7F
-        cmp al, 0x13
-        je .m13
         cmp al, 6
-        ja v_exit                   ; a mode we do not have: nothing changes
-        jmp .ok
-.m13:   mov al, 7
+        jbe .ok
+        mov ah, al                  ; the others: their place in the table
+        mov al, 7
+        cmp ah, 0x13
+        je .ok
+        inc al
+        cmp ah, 0x0D
+        je .ok
+        inc al
+        cmp ah, 0x0E
+        je .ok
+        inc al
+        cmp ah, 0x10
+        je .ok
+        inc al
+        cmp ah, 0x12
+        jne v_exit                  ; a mode we do not have: nothing changes
 .ok:    xor ah, ah
         mov si, ax
         shl si, 2
@@ -158,10 +174,17 @@ v_setmode:
         pop es
         mov dx, 0x3D8
         out dx, al                  ; no picture while things change
-        cmp byte [BD_VMODE], 0x13
-        jne .v
-        inc al
+        mov bx, ea_table - 1        ; which picture the video hardware makes
+.ea:    inc bx
+        mov ah, [cs:bx]
+        inc bx
+        or ah, ah
+        jz .v
+        cmp ah, [BD_VMODE]
+        jne .ea
+        mov al, [cs:bx]
 .v:     out 0xEA, al
+        call pl_defaults
         test byte F_AX, 0x80
         jnz .keep
         xor di, di
@@ -173,8 +196,8 @@ v_setmode:
         jmp .keep
 .g:     xor ax, ax
         mov cx, 0x2000
-        cmp byte [BD_VMODE], 0x13
-        jne .c
+        cmp byte [BD_VMODE], 7
+        jb .c
         push es
         push 0xA000
         pop es
@@ -194,6 +217,10 @@ v_setmode:
         out dx, al
         loop .pl
         pop si
+        call is_planar
+        jne .np
+        call pl_palette
+.np:
         mov dx, 0x3D4
         mov ax, 0x000C
         out dx, ax
@@ -401,6 +428,8 @@ v_palette:
 v_wpixel:
         cmp byte [BD_VMODE], 4
         jb v_exit
+        call is_planar
+        je pl_wpixel
         call pix_addr
         or ah, ah
         jnz .c
@@ -422,6 +451,8 @@ v_wpixel:
 v_rpixel:
         cmp byte [BD_VMODE], 4
         jb v_exit
+        call is_planar
+        je pl_rpixel
         call pix_addr
         mov al, [es:di]
         or ah, ah
@@ -463,7 +494,16 @@ pix_addr:
 
 ; DI = offset of graphics line AX in its segment
 gline_addr:
-        cmp byte [BD_VMODE], 0x13
+        call is_planar
+        jne .np
+        push dx
+        push ax
+        mul word [BD_VCOLS]
+        mov di, ax
+        pop ax
+        pop dx
+        ret
+.np:    cmp byte [BD_VMODE], 0x13
         jne .c
         imul di, ax, 320
         ret
@@ -477,6 +517,8 @@ gline_addr:
 
 ; draw character AL in colour BL at row DH, column DL of a graphics mode (8x8 cells)
 gfx_glyph:
+        call is_planar
+        je pl_glyph
         pusha
         push es
         xor ah, ah
@@ -555,6 +597,10 @@ gfx_scroll:
         jb .s
         mov si, 0
         je .s
+        push 0xA000
+        pop es
+        call is_planar
+        je .s
         mov si, 3
         push 0xA000
         pop es
@@ -616,6 +662,10 @@ gfx_scroll:
         neg word [bp-22]
 .up:    mov bx, [bp-14]
         sub bx, [bp-16]
+        push ax
+        mov ax, 0x0105              ; planes: a copy moves all four (write mode 1)
+        call gc_out
+        pop ax
 .copy:  or bx, bx
         jz .fill
         mov ax, dx
@@ -640,6 +690,8 @@ gfx_scroll:
         dec bx
         jmp .copy
 .fill:  mov bx, [bp-16]
+        mov ax, 0x0205              ; planes: the byte written is the colour (write mode 2)
+        call gc_out
 .fl:    or bx, bx
         jz .done
         mov ax, dx
@@ -651,9 +703,212 @@ gfx_scroll:
         add dx, si
         dec bx
         jmp .fl
-.done:  pop es
+.done:  call pl_defaults
+        pop es
         popa
         ret
+
+; ── the 16-colour modes (four planes at A000) ──
+; ZF set if the mode is one of them
+is_planar:
+        cmp byte [BD_VMODE], 0x0D
+        je .y
+        cmp byte [BD_VMODE], 0x0E
+        je .y
+        cmp byte [BD_VMODE], 0x10
+        je .y
+        cmp byte [BD_VMODE], 0x12
+.y:     ret
+
+ea_table:                           ; mode, value for port EAh; ends with 0
+        db 0x13, 0x01, 0x0D, 0x02, 0x0E, 0x06, 0x10, 0x0E, 0x12, 0x16, 0
+
+; AL to graphics controller register AH... as a word: AX = value * 256 + register
+gc_out: push dx
+        mov dx, 0x3CE
+        out dx, ax
+        pop dx
+        ret
+
+; the graphics controller and the plane mask as programs expect to find them
+pl_defaults:
+        push ax
+        push dx
+        mov ax, 0x0005
+        call gc_out
+        mov ax, 0xFF08
+        call gc_out
+        mov ax, 0x0003
+        call gc_out
+        mov ax, 0x0001
+        call gc_out
+        mov ax, 0x0004
+        call gc_out
+        mov ax, 0x0F07
+        call gc_out
+        mov dx, 0x3C4
+        mov ax, 0x0F02
+        out dx, ax
+        pop dx
+        pop ax
+        ret
+
+; ES:DI = the byte of the pixel at column CX, line DX; CH = its bit
+pl_addr:
+        mov ax, [BD_VCOLS]
+        mul dx
+        mov di, cx
+        shr di, 3
+        add di, ax
+        push 0xA000
+        pop es
+        and cl, 7
+        mov ch, 0x80
+        shr ch, cl
+        ret
+
+pl_wpixel:
+        mov bl, al
+        call pl_addr
+        mov ah, ch
+        mov al, 8
+        call gc_out                 ; only this bit
+        mov ax, 0x0205
+        call gc_out
+        test bl, 0x80
+        jz .w
+        mov ax, 0x1803              ; exclusive or
+        call gc_out
+.w:     mov al, [es:di]
+        mov [es:di], bl
+        call pl_defaults
+        jmp v_exit
+
+pl_rpixel:
+        call pl_addr
+        xor bl, bl
+        mov ah, 3
+.p:     mov al, 4                   ; plane by plane
+        call gc_out
+        shl bl, 1
+        test [es:di], ch
+        jz .n
+        or bl, 1
+.n:     dec ah
+        jns .p
+        call pl_defaults
+        mov F_AX, bl
+        jmp v_exit
+
+; character AL in colour BL at row DH, column DL (8x8 cells)
+pl_glyph:
+        pusha
+        push es
+        push 0xA000
+        pop es
+        xor ah, ah
+        mov si, ax
+        shl si, 3
+        add si, font8x8
+        mov cl, dl
+        xor ch, ch
+        mov al, dh
+        xor ah, ah
+        shl ax, 3
+        mul word [BD_VCOLS]
+        mov di, ax
+        add di, cx
+        mov ax, 0x0205
+        call gc_out
+        test bl, 0x80
+        jz .n
+        mov ax, 0x1803
+        call gc_out
+.n:     mov cx, 8
+.row:   mov ah, [cs:si]
+        inc si
+        mov al, 8
+        call gc_out                 ; the dots of the character: the colour
+        mov al, [es:di]
+        mov [es:di], bl
+        test bl, 0x80
+        jnz .x
+        not ah
+        mov al, 8
+        call gc_out                 ; the others: black
+        mov al, [es:di]
+        mov byte [es:di], 0
+.x:     add di, [BD_VCOLS]
+        loop .row
+        call pl_defaults
+        pop es
+        popa
+        ret
+
+; the colours of a 16-colour mode: 64 DAC entries as an EGA monitor shows them, and the 16
+; palette registers. With 200 lines bit 4 is "bright"; with more, bits 5-3 are the dim thirds.
+pl_palette:
+        pusha
+        mov dx, 0x3C8
+        xor al, al
+        out dx, al
+        inc dx
+        xor bx, bx
+.l:     mov si, 2                   ; red, green, blue
+.c:     xor al, al
+        test bl, [cs:.prim+si]
+        jz .1
+        add al, 0x2A
+.1:     mov ah, [cs:.sec+si]
+        cmp byte [BD_VMODE], 0x10
+        jae .2
+        mov ah, 0x10
+.2:     test bl, ah
+        jz .3
+        add al, 0x15
+.3:     cmp byte [BD_VMODE], 0x10   ; 200 lines: colour 6 is brown
+        jae .4
+        cmp si, 1
+        jne .4
+        mov ah, bl
+        and ah, 0x17
+        cmp ah, 6
+        jne .4
+        mov al, 0x15
+.4:     out dx, al
+        dec si
+        jns .c
+        inc bl
+        cmp bl, 64
+        jb .l
+        mov dx, 0x3DA
+        in al, dx
+        mov dx, 0x3C0
+        xor bl, bl
+.a:     mov al, bl
+        out dx, al
+        cmp bl, 8
+        jb .lo
+        add al, 8                   ; 200 lines: 10h-17h
+        cmp byte [BD_VMODE], 0x10
+        jb .o
+        add al, 0x28                ; more: 38h-3Fh
+        jmp .o
+.lo:    cmp bl, 6
+        jne .o
+        cmp byte [BD_VMODE], 0x10
+        jb .o
+        mov al, 0x14
+.o:     out dx, al
+        inc bl
+        cmp bl, 16
+        jb .a
+        mov al, 0x20
+        out dx, al
+        popa
+        ret
+.prim:  db 1, 2, 4
+.sec:   db 0x08, 0x10, 0x20
 
 v_getmode:
         mov al, [BD_VMODE]
@@ -665,7 +920,55 @@ v_getmode:
 
 ; the palette: AL = 10h set colour BX to DH,CH,CL; 12h set CX colours from BX with ES:DX;
 ; 15h and 17h read them back
-v_dac:  cmp al, 0x10
+v_dac:  or al, al                   ; AL = 0: palette register BL = BH
+        jnz .r2
+        cmp bl, 16
+        jae .x
+        mov dx, 0x3DA
+        in al, dx
+        mov dx, 0x3C0
+        mov al, bl
+        out dx, al
+        mov al, bh
+        out dx, al
+        mov al, 0x20
+        out dx, al
+        jmp v_exit
+.r2:    cmp al, 2                   ; AL = 2: all 16 from ES:DX
+        jne .r7
+        mov si, dx
+        mov ds, F_ES
+        mov dx, 0x3DA
+        in al, dx
+        mov dx, 0x3C0
+        xor bl, bl
+.ra:    mov al, bl
+        out dx, al
+        lodsb
+        out dx, al
+        inc bl
+        cmp bl, 16
+        jb .ra
+        mov al, 0x20
+        out dx, al
+        jmp v_exit
+.r7:    cmp al, 7                   ; AL = 7: read palette register BL into BH
+        jne .r10
+        mov dx, 0x3DA
+        in al, dx
+        mov dx, 0x3C0
+        mov al, bl
+        out dx, al
+        inc dx
+        in al, dx
+        mov [bp+13], al
+        dec dx
+        mov al, 0x20                ; (the value write that 3C0 waits for goes nowhere)
+        out dx, al
+        mov dx, 0x3DA
+        in al, dx
+        jmp v_exit
+.r10:   cmp al, 0x10
         jne .1
         mov ah, dh
         mov dx, 0x3C8
