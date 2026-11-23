@@ -12,7 +12,7 @@ Status: work in progress. In simulation the machine boots FreeDOS from an SD car
 | Part | How |
 |---|---|
 | CPU | [SPK286](https://github.com/aitorgomez-net/SPK286), unmodified, in `ref/SPK286` |
-| RAM | the board's 8 MB SDRAM: 640 KB, plain RAM at C0000-FBFFF, 7 MB above 1 MB |
+| RAM | the board's 8 MB SDRAM: 640 KB, plain RAM at C0000-FBFFF, 7 MB above 1 MB; a 32 KB cache in block RAM in front of it (`rtl/sdram_bridge.sv`) |
 | BIOS | our own (`bios/`), 16 KB in block RAM at FC000 |
 | Video | text 40x25 and 80x25, CGA 320x200x4 and 640x200x2, VGA 320x200x256 (mode 13h) with the VGA palette; 640x480 at 60 Hz on HDMI, or 640x400 at 70 Hz as a VGA card sends it (`make bitstream LINES=449`) (`rtl/video.sv`) |
 | Keyboard | CH9350 (or a Pico acting as one) on pin 53, as on the Atari816; turned into set 1 scancodes at ports 60h/64h |

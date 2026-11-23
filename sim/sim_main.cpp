@@ -223,6 +223,7 @@ int main(int argc, char** argv) {
     Top* top = new Top;
     top->reset = 1; top->kbd_rx = 1; top->sd_miso = 1;
 #ifdef SYSTEM
+    long st_busy = 0, st_wr = 0, st_burst = 0, st_rd = 0; bool sd_prev = false;
     std::vector<uint8_t> frame(640 * 480 * 3, 0), shown(640 * 480 * 3, 0);
     int cx = 0, cy = 0, sdwait = 0; bool complete = false;
     // the debug text comes out of the serial port: read it back
@@ -236,6 +237,9 @@ int main(int argc, char** argv) {
         bool dbg_valid = false; char dbg_ch = 0;
 #ifdef SYSTEM
         // SDRAM controller: a 32-bit word per request (four in a burst read), 'complete' held until the request goes
+        if (top->sd_req) st_busy++;
+        if (top->sd_req && !sd_prev) { if (top->sd_write) st_wr++; else if (top->sd_burst) st_burst++; else st_rd++; }
+        sd_prev = top->sd_req;
         if (!top->sd_req) { complete = false; sdwait = 0; }
         else if (!complete && ++sdwait > waits + (top->sd_burst ? 4 : 0)) {
             complete = true;
@@ -305,6 +309,8 @@ int main(int argc, char** argv) {
     for (long a : peeks) { printf("%06lX:", a); for (int i = 0; i < 16; i++) printf(" %02X", ram[a + i]); printf("\n"); }
     if (screen) print_screen();
 #ifdef SYSTEM
+    printf("[RAM: waiting %.1f%% of the time; %ld 16-byte reads (video and code), %ld data reads, %ld writes]\n",
+           100.0 * st_busy / cycles, st_burst, st_rd, st_wr);
     if (ppm) { FILE* f = fopen(ppm, "wb"); fprintf(f, "P6 640 480 255\n"); fwrite(shown.data(), 1, shown.size(), f); fclose(f); }
 #endif
     if (save && sdfile) { FILE* f = fopen(save, "wb"); fwrite(sd.img.data(), 1, sd.img.size(), f); fclose(f); }
