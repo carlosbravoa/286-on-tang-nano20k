@@ -6,6 +6,7 @@ module uart_tx_fifo #(parameter int CLK_HZ = 25_312_500, parameter int BAUD = 11
     input  logic       reset,
     input  logic       wr,
     input  logic [7:0] data,
+    output logic       full,
     output logic       tx
 );
     localparam int DIV = CLK_HZ / BAUD;
@@ -16,7 +17,7 @@ module uart_tx_fifo #(parameter int CLK_HZ = 25_312_500, parameter int BAUD = 11
     logic [3:0]  bits_q;
     logic [15:0] cnt_q;
     logic [1:0]  st_q;                  // 0 idle, 1 read the queue, 2 load, 3 send
-    wire full = (wp_q ^ rp_q) == 11'h400;
+    assign full = (wp_q ^ rp_q) == 11'h400;
     always_ff @(posedge clk) begin
         if (wr && !full) begin mem[wp_q[9:0]] <= data; wp_q <= wp_q + 11'd1; end
         rd_q <= mem[rp_q[9:0]];

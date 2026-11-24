@@ -24,6 +24,7 @@ for r in ramps:
     pal += hues
 pal += [(0, 0, 0)] * (256 - len(pal))
 assert len(pal) == 256
-print("; the default VGA palette: made by tools/mkvgapal.py")
-for i in range(0, 256, 4):
-    print("        db " + ", ".join("%d,%d,%d" % c for c in pal[i:i + 4]))
+if __name__ == "__main__":
+    print("; the default VGA palette: made by tools/mkvgapal.py")
+    for i in range(0, 256, 4):
+        print("        db " + ", ".join("%d,%d,%d" % c for c in pal[i:i + 4]))

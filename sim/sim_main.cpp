@@ -12,6 +12,9 @@
 //     --quiet            do not echo the characters the BIOS writes
 //     --ppm FILE         (system build) write the last complete video frame as a picture
 //     --ppm-every N      and also every N cycles while it runs (to watch a long run)
+//     --pty LINK         (system build) the serial port as a terminal, LINK pointing at it:
+//                        tools/pc286ctl.py --port LINK ... talks to the monitor. Runs until
+//                        --cycles; a byte takes 2200 cycles, so be patient.
 #ifdef SYSTEM
 #include "Vpc286_system.h"
 #include "Vpc286_system___024root.h"
@@ -28,6 +31,8 @@ typedef Vpc286_core Top;         // the core alone, RAM answered directly (faste
 #include <deque>
 #include <string>
 #include <vector>
+#include <fcntl.h>
+#include <unistd.h>
 
 #ifndef RASTER_LINES
 #define RASTER_LINES 525
@@ -210,6 +215,7 @@ int main(int argc, char** argv) {
     std::vector<std::pair<std::string, std::string>> script;
     std::string pending_expect; std::vector<long> peeks;
     std::vector<long> log_ips;
+    const char* ptylink = nullptr; int pty = -1;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         if (a == "--sd") sdfile = argv[++i];
@@ -225,6 +231,7 @@ int main(int argc, char** argv) {
         else if (a == "--waits") waits = atoi(argv[++i]);
         else if (a == "--screen") screen = true;
         else if (a == "--quiet") quiet = true;
+        else if (a == "--pty") ptylink = argv[++i];
         else if (a == "--log-ip") log_ips.push_back(strtol(argv[++i], 0, 16));   // BIOS offset: print the registers there
         else if (a == "--expect") pending_expect = unescape(argv[++i]);
         else if (a == "--type") script.push_back({pending_expect, unescape(argv[++i])});
@@ -245,6 +252,15 @@ int main(int argc, char** argv) {
     int cx = 0, cy = 0, sdwait = 0; bool complete = false;
     // the debug text comes out of the serial port: read it back
     int u_bit = -1; double u_t = 0; uint8_t u_byte = 0;
+    // and the other way: bytes from the terminal go in at mon_rx
+    std::deque<uint8_t> m_in; int m_bit = -1; double m_t = 0; uint8_t m_cur = 0;
+    top->mon_rx = 1;
+    if (ptylink) {
+        pty = posix_openpt(O_RDWR | O_NOCTTY | O_NONBLOCK);
+        if (pty < 0 || grantpt(pty) || unlockpt(pty)) { perror("pty"); return 1; }
+        unlink(ptylink);
+        if (symlink(ptsname(pty), ptylink)) { perror(ptylink); return 1; }
+    }
     const double u_time = CLK_HZ / 115200.0;
 #endif
     std::string log; size_t step = 0, searched = 0; long stop_at = -1, wc = 0, cycles = 0;
@@ -288,6 +304,18 @@ int main(int argc, char** argv) {
             if (u_bit < 8) u_byte |= top->dbg_tx << u_bit++;
             else { u_bit = -1; dbg_valid = true; dbg_ch = u_byte; }
         }
+        if (pty >= 0) {
+            if (dbg_valid && write(pty, &dbg_ch, 1) < 0) {}
+            if ((cycles & 0x3FF) == 0) { uint8_t b[64]; int n = read(pty, b, sizeof b); for (int i = 0; i < n; i++) m_in.push_back(b[i]); }
+            if (m_bit < 0) { if (!m_in.empty()) { m_cur = m_in.front(); m_in.pop_front(); m_bit = 0; m_t = u_time; top->mon_rx = 0; } }
+            else if ((m_t -= 1) <= 0) {
+                m_t += u_time; m_bit++;
+                if (m_bit <= 8) top->mon_rx = (m_cur >> (m_bit - 1)) & 1;
+                else if (m_bit == 9) top->mon_rx = 1;
+                else m_bit = -1;
+            }
+        }
+        if (dbg_valid && (dbg_ch & 0xE0) == 0xA0) dbg_valid = false;      // the monitor's answers are not text
 #else
         // outputs are settled after the last rising edge: answer the RAM request, then clock
         top->vid_blank = (cycles % 800) >= 640 || (cycles % 420000) >= 384000;   // roughly a 640x480 raster
@@ -361,6 +389,7 @@ int main(int argc, char** argv) {
            100.0 * st_busy / cycles, st_burst, st_rd, st_wr);
     if (ppm) write_ppm(ppm, shown);
 #endif
+    if (ptylink) unlink(ptylink);
     if (save && sdfile) { FILE* f = fopen(save, "wb"); fwrite(sd.img.data(), 1, sd.img.size(), f); fclose(f); }
     delete top;
     return 0;

@@ -20,7 +20,8 @@ module pc286_system #(
     input  logic        kbd_rx,
     output logic        sd_sck, sd_mosi, sd_cs_n,
     input  logic        sd_miso,
-    output logic        dbg_tx,
+    output logic        dbg_tx,         // serial: the BIOS' text and the monitor's answers
+    input  logic        mon_rx,         // serial: commands for the monitor (rtl/monitor.sv)
     output logic        halted,
     // SDRAM controller
     output logic        sd_req, sd_read, sd_write, sd_burst,
@@ -51,15 +52,46 @@ module pc286_system #(
     logic [3:0]  px_wmask;
     logic [22:0] dm_addr;
     logic [7:0]  dm_rdata;
+    // the monitor: keys, mouse, a byte of RAM (it shares the Sound Blaster's port), reset
+    logic        mon_sc_valid, mon_sc_ready, mon_mouse_valid, mon_tx_valid, mon_reset;
+    logic [7:0]  mon_sc_data, mon_mouse_dx, mon_mouse_dy, mon_tx_data, m_wdata, dm_wdata;
+    logic [2:0]  mon_mouse_btn;
+    logic        m_req, m_we, m_ack, c_dm_req, dm_we, dm_busy_q, dm_mon_q, tx_full;
+    logic [22:0] m_addr, c_dm_addr;
+    wire         rst = reset || mon_reset;
 
-    pc286_core #(.CLK_HZ(CLK_HZ), .BIOS_HEX(BIOS_HEX), .HID_TABLE(HID_TABLE)) core (.*);
+    pc286_core #(.CLK_HZ(CLK_HZ), .BIOS_HEX(BIOS_HEX), .HID_TABLE(HID_TABLE)) core (.reset(rst),
+        .dm_req(c_dm_req), .dm_addr(c_dm_addr), .dm_ack(dm_ack && !dm_mon_q), .*);
 
     video #(.FONT_HEX(FONT_HEX), .LINES(LINES)) video (.clk_pix, .cx, .cy, .rgb, .hsync, .vsync,
-        .blank(vid_blank), .vretrace(vid_vsync), .clk, .reset, .crtc_start, .crtc_lc, .crtc_off, .crtc_cursor,
+        .blank(vid_blank), .vretrace(vid_vsync), .clk, .reset(rst), .crtc_start, .crtc_lc, .crtc_off, .crtc_cursor,
         .cursor_start, .cursor_end, .vid_mode, .vid_color, .vid_ctrl, .attr_reset,
         .vio_wr, .vio_rd, .vio_addr, .vio_wdata, .vio_rdata, .vf_req, .vf_addr, .vf_rdata, .vf_ack);
 
-    sdram_bridge bridge (.*);
+    sdram_bridge bridge (.reset(rst), .*);
 
-    uart_tx_fifo #(.CLK_HZ(CLK_HZ)) dbg (.clk, .reset, .wr(dbg_char_valid), .data(dbg_char), .tx(dbg_tx));
+    // one byte port for two: whoever asks first has it until its answer
+    always_ff @(posedge clk) begin
+        if (!dm_busy_q) begin
+            if (c_dm_req) begin dm_busy_q <= 1'b1; dm_mon_q <= 1'b0; end
+            else if (m_req && !m_ack) begin dm_busy_q <= 1'b1; dm_mon_q <= 1'b1; end
+        end else if (dm_ack) dm_busy_q <= 1'b0;
+        if (rst) dm_busy_q <= 1'b0;
+    end
+    assign dm_req   = dm_busy_q && (dm_mon_q ? m_req : c_dm_req);
+    assign dm_addr  = dm_mon_q ? m_addr : c_dm_addr;
+    assign dm_we    = dm_mon_q && m_we;
+    assign dm_wdata = m_wdata;
+    assign m_ack    = dm_ack && dm_mon_q;
+
+    monitor #(.CLK_HZ(CLK_HZ)) monitor (.clk, .reset, .rx(mon_rx),
+        .tx_valid(mon_tx_valid), .tx_data(mon_tx_data), .tx_ready(!dbg_char_valid && !tx_full),
+        .sc_valid(mon_sc_valid), .sc_data(mon_sc_data), .sc_ready(mon_sc_ready),
+        .mouse_valid(mon_mouse_valid), .mouse_btn(mon_mouse_btn), .mouse_dx(mon_mouse_dx), .mouse_dy(mon_mouse_dy),
+        .m_req, .m_we, .m_addr, .m_wdata, .m_rdata(dm_rdata), .m_ack, .machine_reset(mon_reset));
+
+    // the text first; its bytes A0h-BFh would look like the monitor's answers
+    wire [7:0] text = dbg_char[7:5] == 3'b101 ? "." : dbg_char;
+    uart_tx_fifo #(.CLK_HZ(CLK_HZ)) dbg (.clk, .reset, .wr(dbg_char_valid || mon_tx_valid),
+        .data(dbg_char_valid ? text : mon_tx_data), .full(tx_full), .tx(dbg_tx));
 endmodule

@@ -63,7 +63,7 @@ module tang_top (
     pc286_system #(.CLK_HZ(25_312_500), .BIOS_HEX("bios16.hex"), .HID_TABLE("hid_table.hex"), .FONT_HEX("vga8x16.hex"), .LINES(video_mode::LINES)) machine (
         .clk(clk), .reset(reset), .clk_pix(clk_pix), .cx(cx), .cy(cy), .rgb(rgb), .hsync(hsync), .vsync(vsync),
         .speaker(speaker), .opl_snd(opl_snd), .opl_sample(opl_sample), .kbd_rx(kbd_rx), .sd_sck(sd_clk), .sd_mosi(sd_mosi), .sd_cs_n(sd_cs_n), .sd_miso(sd_miso),
-        .dbg_tx(bl616_uart_tx), .halted(halted),
+        .dbg_tx(bl616_uart_tx), .mon_rx(bl616_uart_rx), .halted(halted),
         .sd_req(sd_req), .sd_read(sd_read), .sd_write(sd_write), .sd_burst(sd_burst), .sd_addr(sd_addr), .sd_wdata(sd_wdata),
         .sd_brdata(sd_burst_rdata[127:0]),
         .sd_wmask(sd_wmask), .sd_rdata(sd_rdata), .sd_complete(sd_complete), .sd_refresh(sd_refresh));

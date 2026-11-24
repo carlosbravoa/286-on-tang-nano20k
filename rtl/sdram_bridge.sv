@@ -8,7 +8,8 @@
 // CPU is told at once that a write is done and goes on while the SDRAM takes it; reads the
 // cache can answer are answered meanwhile (also during a video read).
 // Video reads 16 bytes at a time; they stay in vf_rdata until its next read.
-// The Sound Blaster reads single bytes (a plain SDRAM read; the SDRAM always has what was written).
+// The Sound Blaster and the monitor read single bytes (a plain SDRAM read; the SDRAM always has
+// what was written). The monitor also writes them: the cache then forgets the line at that place.
 `timescale 1ns/1ps
 module cache_ram #(parameter int W = 8, parameter int A = 11) (
     input  logic         clk,
@@ -42,8 +43,10 @@ module sdram_bridge (
     input  logic [22:0] vf_addr,
     output logic [127:0] vf_rdata,
     output logic        vf_ack,
-    // sound: one byte
+    // sound and the monitor: one byte
     input  logic        dm_req,
+    input  logic        dm_we,
+    input  logic [7:0]  dm_wdata,
     input  logic [22:0] dm_addr,
     output logic [7:0]  dm_rdata,
     output logic        dm_ack,
@@ -93,12 +96,13 @@ module sdram_bridge (
     wire wr_go  = take && mem_we && can_go;
     wire fill   = st_q == BUSY && sd_complete && !owner_video_q && !owner_dma_q && !owner_px_q && sd_read;
     wire clear  = st_q == CLEAR;
+    wire forget = st_q == BUSY && sd_complete && owner_dma_q && sd_write;   // a byte was written behind the cache
     // The answer goes to the CPU in the same clock: a kept read takes two clocks in all.
     assign mem_ack   = cpu_new && (above || (lk_q && (mem_we ? can_go : hit)));
     assign mem_rdata = above ? 16'hFFFF : line[{mem_addr[3:1], 4'b0} +: 16];
 
-    cache_ram #(.W(9)) tags (.clk, .we(fill || clear), .wa(clear ? clr_q : sd_addr[14:4]),
-        .wd(clear ? 9'd0 : {1'b1, sd_addr[22:15]}), .ra(mem_addr[14:4]), .rd(tag));
+    cache_ram #(.W(9)) tags (.clk, .we(fill || clear || forget), .wa(clear ? clr_q : sd_addr[14:4]),
+        .wd(clear || forget ? 9'd0 : {1'b1, sd_addr[22:15]}), .ra(mem_addr[14:4]), .rd(tag));
     for (genvar i = 0; i < 16; i++) begin : lane
         wire upd = wr_go && hit && mem_addr[3:1] == 3'(i / 2) && mem_be[i % 2];
         cache_ram bytes (.clk, .we(fill || upd), .wa(fill ? sd_addr[14:4] : mem_addr[14:4]),
@@ -110,7 +114,7 @@ module sdram_bridge (
         vf_ack <= 1'b0; dm_ack <= 1'b0; px_ack <= 1'b0;
         ref_q <= ref_q + 9'd1;
         // the answer is in a clock after the request, if the cache was not written meanwhile
-        lk_q <= cpu_new && !mem_ack && !fill && !clear;
+        lk_q <= cpu_new && !mem_ack && !fill && !clear && !forget;
         case (st_q)
             IDLE, DONE: begin
                 st_q <= IDLE;
@@ -120,7 +124,8 @@ module sdram_bridge (
                     sd_req <= 1'b1; st_q <= BUSY;
                 end else if (dma_go) begin
                     owner_video_q <= 1'b0; owner_dma_q <= 1'b1; owner_px_q <= 1'b0;
-                    sd_addr <= {dm_addr[22:2], 2'b00}; sd_read <= 1'b1; sd_write <= 1'b0;
+                    sd_addr <= {dm_addr[22:2], 2'b00}; sd_read <= !dm_we; sd_write <= dm_we;
+                    sd_wdata <= {4{dm_wdata}}; sd_wmask <= 4'b0001 << dm_addr[1:0];
                     sd_req <= 1'b1; st_q <= BUSY;
                 end else if (px_go) begin               // the planes are the top 256 KB of the SDRAM
                     owner_video_q <= 1'b0; owner_dma_q <= 1'b0; owner_px_q <= 1'b1;

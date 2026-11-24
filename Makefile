@@ -18,7 +18,7 @@ endif
 CPU := $(S)/microcode/generated/spk286_microcode_pkg.sv $(S)/microcode/generated/spk286_microcode_rom.sv \
        $(S)/microcode/generated/spk286_microcode_sync_rom.sv $(S)/rtl/spk286_protected_pkg.sv $(S)/rtl/spk286_tss_pkg.sv \
        $(filter-out %_pkg.sv $(CPU_OUT),$(wildcard $(S)/rtl/*.sv)) $(CPU_IN)
-SYS := rtl/video.sv rtl/sdram_bridge.sv rtl/uart_tx_fifo.sv rtl/pc286_system.sv
+SYS := rtl/video.sv rtl/sdram_bridge.sv rtl/uart_tx_fifo.sv rtl/monitor.sv rtl/pc286_system.sv
 RTL := rtl/pic8259.sv rtl/pit8254.sv rtl/kbd8042.sv rtl/kbd_ch9350.sv rtl/spi_port.sv $(wildcard rtl/jtopl/*.v) rtl/adlib.sv rtl/sblaster.sv rtl/ega_planes.sv rtl/pc286_core.sv
 BIOS_SRC := $(wildcard bios/*.asm)
 

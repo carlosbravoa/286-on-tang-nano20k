@@ -30,6 +30,13 @@ module pc286_core #(
     input  logic        mem_ack,
     // keyboard and mouse (CH9350 UART)
     input  logic        kbd_rx,
+    // the same from the monitor (remote control)
+    input  logic        mon_sc_valid,
+    input  logic [7:0]  mon_sc_data,
+    output logic        mon_sc_ready,
+    input  logic        mon_mouse_valid,
+    input  logic [2:0]  mon_mouse_btn,
+    input  logic [7:0]  mon_mouse_dx, mon_mouse_dy,
     // SD card
     output logic        sd_sck, sd_mosi, sd_cs_n,
     input  logic        sd_miso,
@@ -94,8 +101,8 @@ module pc286_core #(
         .bus_bhe_n(bhe_n), .bus_status(status)
     );
 
-    wire is_mem  = bus_valid && (status == C_MEMR || status == C_MEMW || status == C_FETCH);
-    wire is_io   = bus_valid && (status == C_IOR || status == C_IOW);
+    wire is_mem /*verilator public_flat_rd*/ = bus_valid && (status == C_MEMR || status == C_MEMW || status == C_FETCH);
+    wire is_io /*verilator public_flat_rd*/ = bus_valid && (status == C_IOR || status == C_IOW);
     wire is_inta = bus_valid && status == C_INTA;
 
     // ── memory ──
@@ -230,11 +237,19 @@ module pc286_core #(
     end
 
     // keyboard
-    logic [7:0] kbd_r, sc_data, mouse_dx, mouse_dy;
-    logic [2:0] mouse_btn;
-    logic sc_valid, sc_ready, a20_set, a20_value, kbd_reset_req, mouse_valid;
+    logic [7:0] kbd_r, sc_data, mouse_dx, mouse_dy, hid_sc_data, hid_dx, hid_dy;
+    logic [2:0] mouse_btn, hid_btn;
+    logic sc_valid, sc_ready, a20_set, a20_value, kbd_reset_req, mouse_valid, hid_sc_valid, hid_mouse_valid;
     kbd_ch9350 #(.CLK_HZ(CLK_HZ), .HID_TABLE(HID_TABLE)) hid (.clk, .reset, .rx(kbd_rx),
-        .sc_valid, .sc_data, .sc_ready, .mouse_valid, .mouse_btn, .mouse_dx, .mouse_dy);
+        .sc_valid(hid_sc_valid), .sc_data(hid_sc_data), .sc_ready(sc_ready && !mon_sc_valid),
+        .mouse_valid(hid_mouse_valid), .mouse_btn(hid_btn), .mouse_dx(hid_dx), .mouse_dy(hid_dy));
+    assign sc_valid     = mon_sc_valid || hid_sc_valid;
+    assign sc_data      = mon_sc_valid ? mon_sc_data : hid_sc_data;
+    assign mon_sc_ready = sc_ready;
+    assign mouse_valid  = mon_mouse_valid || hid_mouse_valid;
+    assign mouse_btn    = mon_mouse_valid ? mon_mouse_btn : hid_btn;
+    assign mouse_dx     = mon_mouse_valid ? mon_mouse_dx : hid_dx;
+    assign mouse_dy     = mon_mouse_valid ? mon_mouse_dy : hid_dy;
     kbd8042 kbc (.clk, .reset, .a2(io_addr[2]), .wr(io_wr && sel_kbd), .rd(io_rd && sel_kbd),
         .wdata(io_wdata), .rdata(kbd_r), .sc_valid, .sc_data, .sc_ready, .irq1(irq_kbd),
         .a20_set, .a20_value, .a20_now(a20_q), .cpu_reset_req(kbd_reset_req));

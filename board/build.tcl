@@ -24,7 +24,7 @@ foreach f [lsort [glob "$spk/rtl/*.sv"]] {
 }
 if {!$full} { foreach f $stand_in { add_file "$root/rtl/cpu_trim/$f" } }
 foreach f [lsort [glob "$root/rtl/jtopl/*.v"]] { add_file $f }
-foreach f {pic8259 pit8254 kbd8042 kbd_ch9350 spi_port adlib sblaster ega_planes pc286_core video sdram_bridge uart_tx_fifo pc286_system} {
+foreach f {pic8259 pit8254 kbd8042 kbd_ch9350 spi_port adlib sblaster ega_planes pc286_core video sdram_bridge uart_tx_fifo monitor pc286_system} {
     add_file "$root/rtl/$f.sv"
 }
 foreach f [lsort [glob "$root/rtl/board/hdmi/*.sv"]] { add_file $f }
