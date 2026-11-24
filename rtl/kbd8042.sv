@@ -35,7 +35,8 @@ module kbd8042 (
     always_ff @(posedge clk) begin
         a20_set <= 1'b0; cpu_reset_req <= 1'b0;
         if (hold_q != 0) hold_q <= hold_q - 15'd1;
-        if (rd && !a2) begin obf_q <= 1'b0; hold_q <= '1; end
+        // (only the read that takes a byte starts the wait: a program may read the port all the time)
+        if (rd && !a2) begin obf_q <= 1'b0; if (obf_q) hold_q <= '1; end
         else if (!obf_q && hold_q == 0) begin
             if (reply_n_q != 0) begin
                 out_q <= reply_q; reply_q <= reply2_q; reply_n_q <= reply_n_q - 2'd1; obf_q <= 1'b1;

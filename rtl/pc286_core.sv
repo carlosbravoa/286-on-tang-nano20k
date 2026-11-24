@@ -218,7 +218,7 @@ module pc286_core #(
     sblaster #(.CLK_HZ(CLK_HZ)) sb (.clk, .reset, .sel_dsp(sel_sb && !sel_opl), .sel_dma, .sel_page(sel_dpg),
         .a(io_addr[3:0]), .wr(io_wr), .rd(io_rd), .wdata(io_wdata), .rdata(sb_r), .irq(irq_sb),
         .dm_req, .dm_addr, .dm_rdata, .dm_ack, .dac(sb_dac));
-    wire signed [16:0] snd_sum = fm_snd + $signed({~sb_dac[7], sb_dac[6:0], 6'b0});
+    wire signed [16:0] snd_sum = fm_snd + $signed({~sb_dac[7], sb_dac[6:0], 7'b0});
     always_ff @(posedge clk) begin
         opl_sample <= fm_sample;
         if (fm_sample) opl_snd <= snd_sum[16] != snd_sum[15] ? {snd_sum[16], {15{!snd_sum[16]}}} : snd_sum[15:0];
