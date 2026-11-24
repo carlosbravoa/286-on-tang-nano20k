@@ -193,6 +193,11 @@ v_setmode:
         out dx, ax
         mov ax, 0x4009
         out dx, ax
+        mov ax, 0x1413              ; line length: 40 bytes, or 80
+        cmp byte [BD_VCOLS], 80
+        jne .ll
+        mov ah, 0x28
+.ll:    out dx, ax
         mov dx, 0x3DA
         in al, dx
         mov dx, 0x3C0

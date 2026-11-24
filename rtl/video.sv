@@ -29,6 +29,7 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
     input  logic        reset,
     input  logic [15:0] crtc_start, crtc_cursor,
     input  logic [9:0]  crtc_lc,
+    input  logic [7:0]  crtc_off,       // planar modes: words from one line to the next (CRTC 13h)
     input  logic [5:0]  cursor_start,
     input  logic [4:0]  cursor_end,
     input  logic [7:0]  vid_mode,       // 3D8h: 0 80 columns, 1 graphics, 2 mono palette, 3 on, 4 640 wide, 5 blink
@@ -121,9 +122,11 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
     logic        seg_a_q, gfx_q, buf_q, pl_q;
     wire  [7:0]  u = fetch_unit[7:0];
     wire         f_below   = {1'b0, fetch_unit} >= split;
-    wire  [8:0]  f_line    = f_below ? fetch_unit - split[8:0] : fetch_unit;
-    wire  [15:0] pl_off    = (f_below ? 16'd0 : crtc_start) + (pwide ? {1'b0, f_line, 6'b0} + {3'b0, f_line, 4'b0}
-                                                                      : {2'b0, f_line, 5'b0} + {4'b0, f_line, 3'b0});
+    // planar: the lines are fetched in order, so the offset of a line is the one before plus the
+    // line length (CRTC 13h; games with a picture wider than the screen set it)
+    logic [15:0] lbase_q;
+    wire  [15:0] lbase     = fetch_unit == 9'd0 || {1'b0, fetch_unit} == split ? 16'd0 : lbase_q;
+    wire  [15:0] pl_off    = (f_below ? 16'd0 : crtc_start) + lbase;
     wire  [15:0] text_cell = crtc_start + (col80 ? {3'b0, u, 6'b0} + {5'b0, u, 4'b0} : {4'b0, u, 5'b0} + {6'b0, u, 3'b0});
     wire  [15:0] cga_off   = {2'b0, u[0], 13'b0} + {3'b0, u[7:1], 6'b0} + {5'b0, u[7:1], 4'b0};
     wire  [15:0] g13_off   = {u, 8'b0} + {2'b0, u, 6'b0};
@@ -141,6 +144,7 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
         tb_we <= 1'b0; gb_we <= 1'b0;
         case (fst_q)
             2'd0: if (tgl_s[2] != tgl_s[1]) begin
+                      lbase_q <= lbase + {7'b0, crtc_off, 1'b0};
                       gfx_q <= gfx; seg_a_q <= g13; pl_q <= planar; buf_q <= u[0]; word_q <= '0; fst_q <= 2'd1;
                       off_q  <= planar ? pl_off : g13 ? g13_off : gfx ? cga_off : {text_cell[14:0], 1'b0};
                       last_q <= planar ? (pwide ? 7'd80 : 7'd40) : g13 ? 7'd79 : gfx ? 7'd19 : 7'd40;

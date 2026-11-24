@@ -37,6 +37,7 @@ module pc286_system #(
     logic [1:0]  mem_be;
     logic [15:0] mem_wdata, mem_rdata, crtc_start, crtc_cursor;
     logic [9:0]  crtc_lc;
+    logic [7:0]  crtc_off;
     logic [22:0] vf_addr;
     logic [127:0] vf_rdata;
     logic [5:0]  cursor_start;
@@ -54,7 +55,7 @@ module pc286_system #(
     pc286_core #(.CLK_HZ(CLK_HZ), .BIOS_HEX(BIOS_HEX), .HID_TABLE(HID_TABLE)) core (.*);
 
     video #(.FONT_HEX(FONT_HEX), .LINES(LINES)) video (.clk_pix, .cx, .cy, .rgb, .hsync, .vsync,
-        .blank(vid_blank), .vretrace(vid_vsync), .clk, .reset, .crtc_start, .crtc_lc, .crtc_cursor,
+        .blank(vid_blank), .vretrace(vid_vsync), .clk, .reset, .crtc_start, .crtc_lc, .crtc_off, .crtc_cursor,
         .cursor_start, .cursor_end, .vid_mode, .vid_color, .vid_ctrl, .attr_reset,
         .vio_wr, .vio_rd, .vio_addr, .vio_wdata, .vio_rdata, .vf_req, .vf_addr, .vf_rdata, .vf_ack);
 

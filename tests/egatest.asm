@@ -2,6 +2,7 @@
 ;   nasm -DMODE=0x12 -DCOLS=80 -DLINES=480 -f bin tests/egatest.asm -o build/ega12.bin
 ; With -DSPLIT=n the picture is then scrolled (2 bytes and 4 pixels left) above raster line n
 ; and starts again, not scrolled, below it.
+; With -DWIDE=n the line length (CRTC 13h) is then set to n words.
 ; 16 colour bars drawn the way programs do it (set/reset), a line of dots through the BIOS,
 ; text in colours, and the colour of one dot read back (it prints 0C).
         cpu 286
@@ -84,6 +85,11 @@ start:  xor ax, ax
         out dx, al
         mov al, 0x20
         out dx, al
+%endif
+%ifdef WIDE
+        mov dx, 0x3D4               ; a line is WIDE words long: with one more than the screen's,
+        mov ax, WIDE * 256 + 0x13   ; each line shows 16 dots further to the left than the one above
+        out dx, ax
 %endif
 .halt:  hlt
         jmp .halt
