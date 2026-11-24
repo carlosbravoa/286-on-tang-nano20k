@@ -10,6 +10,8 @@
                    subdirectories become C:\\GAME1, C:\\GAME2, ...)
   --xms FILE       an XMS driver for a 286 (FDXMS286.SYS): DOS then loads itself high and
                    programs get about 100 KB more
+If a --root directory has WINDOWS/HIMEM.SYS (an installed Windows 3.x), that driver is used
+instead and C:\\WINDOWS goes on the path.
 
 The partition starts at sector 4032, which leaves room for the floppy image that
 mkcard.py puts at sector 64. Then:  mkcard.py CARD.img --hd OUT.img [--floppy A.img]
@@ -75,7 +77,12 @@ def main():
             fs.mkdir('FREEDOS'); fs.mkdir('FREEDOS/BIN')
             fs.write('FREEDOS/BIN/' + name, open(xms, 'rb').read())
             config = XMS % name.encode() + CONFIG
-        fs.write('FDCONFIG.SYS', config); fs.write('FDAUTO.BAT', AUTO)
+        auto = AUTO
+        if any(os.path.exists(os.path.join(r, 'WINDOWS', 'HIMEM.SYS')) for r in roots):
+            # an installed Windows 3.x: it wants its own HIMEM.SYS, and to be on the path
+            config = b"DEVICE=C:\\WINDOWS\\HIMEM.SYS\r\nDOS=HIGH\r\n" + CONFIG
+            auto = auto.replace(b"path C:\\FREEDOS\\BIN", b"path C:\\FREEDOS\\BIN;C:\\WINDOWS")
+        fs.write('FDCONFIG.SYS', config); fs.write('FDAUTO.BAT', auto)
         for r in roots: fs.copy_host(r)
         for d in dirs:
             src, _, name = d.partition('=')
