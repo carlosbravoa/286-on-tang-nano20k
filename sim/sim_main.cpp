@@ -209,6 +209,7 @@ int main(int argc, char** argv) {
     const char* sdfile = nullptr; const char* save = nullptr; const char* ppm = nullptr;
     std::vector<std::pair<std::string, std::string>> script;
     std::string pending_expect; std::vector<long> peeks;
+    std::vector<long> log_ips;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         if (a == "--sd") sdfile = argv[++i];
@@ -224,6 +225,7 @@ int main(int argc, char** argv) {
         else if (a == "--waits") waits = atoi(argv[++i]);
         else if (a == "--screen") screen = true;
         else if (a == "--quiet") quiet = true;
+        else if (a == "--log-ip") log_ips.push_back(strtol(argv[++i], 0, 16));   // BIOS offset: print the registers there
         else if (a == "--expect") pending_expect = unescape(argv[++i]);
         else if (a == "--type") script.push_back({pending_expect, unescape(argv[++i])});
     }
@@ -315,6 +317,11 @@ int main(int argc, char** argv) {
 #endif
         if (!trace_at.empty() && CPUSIG(opcode_start))
             ring[ring_n++ & 0xFFFFF] = (uint32_t)CPUSIG(events__DOT__instruction_cs_q) << 16 | CPUSIG(debug_instruction_ip);
+        if (!log_ips.empty() && CPUSIG(opcode_start) && CPUSIG(events__DOT__instruction_cs_q) == 0xF000)
+            for (long ip : log_ips) if (CPUSIG(debug_instruction_ip) == ip) {
+                auto& g = CPUSIG(registers__DOT__gpr_q);
+                fprintf(stderr, "L %ld ip=%04lX ax=%04X cx=%04X dx=%04X bx=%04X\n", cycles, ip, g[0], g[1], g[2], g[3]);
+            }
         top->vio_rdata = 0xFF;
 #endif
         sd.clock(top->sd_sck, top->sd_mosi, top->sd_cs_n);

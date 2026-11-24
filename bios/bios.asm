@@ -441,6 +441,8 @@ int15:  sti
         je .a20
         cmp ah, 0xC1
         je .ebda
+        cmp ah, 0xC0
+        je .conf
         mov ah, 0x86                ; not supported
 .cy:    stc
         retf 2
@@ -472,6 +474,13 @@ int15:  sti
 .ebda:  mov ax, EBDA_SEG
         mov es, ax
         jmp .ok
+.conf:  push cs                     ; what machine this is: ES:BX = the table below
+        pop es
+        mov bx, .ctab
+        jmp .ok
+.ctab:  dw 8                        ; an AT (model FC, submodel 1) with a second interrupt controller,
+        db 0xFC, 0x01, 0x00, 0x54   ; the keyboard intercept and an extended BIOS data area
+        db 0, 0, 0, 0
 .wait:  push cx                     ; CX:DX microseconds, to the nearest timer tick (55 ms)
         push dx
         push ds
