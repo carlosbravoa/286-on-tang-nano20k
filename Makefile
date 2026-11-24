@@ -55,6 +55,7 @@ FDBOOT := ref/dos/144m/x86BOOT.img
 XMS := ref/dos/xms/fdxms286/BIN/FDXMS286.SYS
 card:
 	@mkdir -p dos-disk
+	nasm -f bin dos/mouse.asm -o build/MOUSE.COM
 	python3 tools/mkhd.py build/hd.img --size-mb $(or $(CARD_MB),128) --from $(FDBOOT) --xms $(XMS) --root dos-disk
 	python3 tools/mkcard.py build/card.img --hd build/hd.img
 

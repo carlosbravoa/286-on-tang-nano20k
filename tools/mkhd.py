@@ -25,7 +25,7 @@ START, SPT = 4032, 63
 HEADS = 16                         # 32 or 64 for disks over 504 MB; the BIOS reads it from the partition table
 XMS = b"DEVICE=C:\\FREEDOS\\BIN\\%s\r\nDOS=HIGH\r\n"
 CONFIG = b"LASTDRIVE=Z\r\nBUFFERS=20\r\nFILES=40\r\nSHELL=C:\\FREEDOS\\BIN\\COMMAND.COM C:\\FREEDOS\\BIN /E:512 /P=C:\\FDAUTO.BAT\r\n"
-AUTO = b"@echo off\r\npath C:\\FREEDOS\\BIN\r\nprompt $p$g\r\nset BLASTER=A220 I7 D1 T3\r\n"
+AUTO = b"@echo off\r\npath C:\\FREEDOS\\BIN\r\nprompt $p$g\r\nset BLASTER=A220 I7 D1 T3\r\nmouse\r\n"
 
 def chs(lba):
     c, r = divmod(lba, HEADS * SPT); h, s = divmod(r, SPT)
@@ -69,6 +69,7 @@ def main():
             fs.copy_from(Fat(fl))
         fs.remove('SETUP.BAT')                      # the floppy's installer: of no use here
         config = CONFIG
+        if os.path.exists('build/MOUSE.COM'): fs.write('FREEDOS/BIN/MOUSE.COM', open('build/MOUSE.COM', 'rb').read())
         if xms:
             name = os.path.basename(xms).upper()
             fs.mkdir('FREEDOS'); fs.mkdir('FREEDOS/BIN')

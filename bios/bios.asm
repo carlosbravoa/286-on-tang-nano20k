@@ -362,6 +362,8 @@ int1a:  sti
 int15:  sti
         cmp ah, 0x4F                ; keyboard intercept: carry on with the key
         je .cy
+        cmp ax, 0xC2FF              ; ours: put the mouse driver's vectors back (DOS takes them)
+        je .mouse
         cmp ah, 0x88
         je .ext
         cmp ah, 0x87
@@ -385,6 +387,25 @@ int15:  sti
 .ok:    xor ah, ah
         clc
         retf 2
+.mouse: push ds
+        push ax
+        xor ax, ax
+        mov ds, ax
+        cli
+        mov word [0x33*4], int33
+        mov [0x33*4+2], cs
+        mov word [0x74*4], int74
+        mov [0x74*4+2], cs
+        in al, 0xA1                 ; IRQ 12 open
+        and al, 0xEF
+        out 0xA1, al
+        in al, 0x21                 ; and the second interrupt controller's line
+        and al, 0xFB
+        out 0x21, al
+        sti
+        pop ax
+        pop ds
+        jmp .ok
 .ebda:  mov ax, EBDA_SEG
         mov es, ax
         jmp .ok

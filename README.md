@@ -37,6 +37,8 @@ The planes take the top 256 KB of the SDRAM (6.75 MB of extended memory are left
 
 The image is drive C: with FreeDOS, the XMS driver (FDXMS286: DOS loads high, 618 KB free)
 and everything in `dos-disk/` (not in git; one directory per program). It boots from C:.
+It sets `BLASTER` and runs `MOUSE.COM` (`dos/mouse.asm`): the mouse driver is in the BIOS, but DOS
+takes its interrupt vectors at start, and this has the BIOS put them back (INT 15h, AX=C2FFh).
 
 Layout: sector 0 is the partition table (one FAT16 partition from sector 4032, up to 2 GB);
 sector 64 can hold a floppy image, which is then drive A: and is booted first. C: is an
