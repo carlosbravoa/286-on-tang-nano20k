@@ -77,6 +77,9 @@ Needs: Verilator 5, NASM, Python 3, the Gowin IDE (for the bitstream).
 
 ## Licences
 
-Our own files: to be decided by the author. `rtl/board/sdram_nestang.v` is Apache-2.0
-(nand2mario), `rtl/board/hdmi/` is MIT (hdl-util/hdmi), `rtl/jtopl/` is GPL-3.0 (Jose Tejada), SPK286 is MIT, the fonts come from the
+The project is free software under the GNU General Public License, version 3 or (at your
+option) any later version; the text is in `LICENSE`. Parts by others keep their own licences, all
+compatible with it: `rtl/board/sdram_nestang.v` is Apache-2.0
+(nand2mario), `rtl/board/hdmi/` is MIT (hdl-util/hdmi), `rtl/jtopl/` is GPL-3.0 (Jose Tejada), `rtl/board/gw2ar_sdram.sv` is GPL-3.0-or-later (or CC-BY-NC-SA-4.0),
+SPK286 (not in this repository: clone it into `ref/SPK286`) is MIT, the fonts come from the
 SeaBIOS VGA BIOS (see `fonts/README.md`).
