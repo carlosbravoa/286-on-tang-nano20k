@@ -155,6 +155,10 @@ module pc286_core #(
     wire sel_kbd  = io_addr == 16'h0060 || io_addr == 16'h0064;
     wire sel_p61  = io_addr == 16'h0061;
     wire sel_p92  = io_addr == 16'h0092;
+    wire sel_cmos = io_addr[15:1] == 15'h0038;          // 070-071
+    logic [5:0] cmos_idx_q;
+    logic [7:0] nvram [0:63];
+    logic [7:0] shut_q;
     wire sel_pic2 = io_addr[15:1] == 15'h0050;          // 0A0-0A1
     wire sel_spi  = io_addr[15:1] == 15'h0070;          // 0E0-0E1
     wire sel_mouse = io_addr[15:2] == 14'h0039;        // 0E4-0E7
@@ -267,6 +271,7 @@ module pc286_core #(
         if (sel_p61)  io_rdata = {2'b00, out2, refresh_toggle, 2'b00, p61_q};
         if (sel_p92)  io_rdata = {6'b0, a20_q, 1'b0};
         if (sel_spi)  io_rdata = spi_r;
+        if (sel_cmos && io_addr[0]) io_rdata = cmos_idx_q == 6'h0F ? shut_q : nvram[cmos_idx_q];
         if (sel_crtc) io_rdata = io_addr[0] ? crtc_r : {3'b0, crtc_idx_q};
         if (sel_mouse) io_rdata = io_addr[1] ? m_dy_lat : io_addr[0] ? m_dx_lat : {m_new_q, 4'b0, m_btn_q};
         if (sel_map)  io_rdata = io_addr[1] ? {map_q[map_sel_q][9], 6'b0, map_q[map_sel_q][8]}
@@ -306,6 +311,18 @@ module pc286_core #(
     assign vio_rd = io_rd && sel_vga;
     assign vio_addr = io_addr[3:0];
     assign vio_wdata = io_wdata;
+
+    // The "CMOS" memory of the AT (ports 70h and 71h), without the clock: 64 bytes that the BIOS
+    // fills in at power-on. Byte 0Fh is the one that matters: a 286 leaves protected mode only
+    // through a CPU reset, and a program writes there how the BIOS is to give control back to
+    // it afterwards. It survives a CPU reset and is cleared by the reset of the machine.
+    always_ff @(posedge clk) begin
+        if (io_wr && sel_cmos && !io_addr[0]) cmos_idx_q <= io_wdata[5:0];
+        if (io_wr && sel_cmos && io_addr[0]) begin
+            if (cmos_idx_q == 6'h0F) shut_q <= io_wdata; else nvram[cmos_idx_q] <= io_wdata;
+        end
+        if (reset) shut_q <= 8'h00;
+    end
 
     // CPU reset: the keyboard controller's reset line, port 92h bit 0, or a triple fault
     logic [4:0] rst_cnt_q;

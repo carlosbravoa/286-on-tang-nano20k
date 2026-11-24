@@ -11,6 +11,7 @@
 //     --peek HEXADDR     print 16 bytes of RAM at the end
 //     --quiet            do not echo the characters the BIOS writes
 //     --ppm FILE         (system build) write the last complete video frame as a picture
+//     --ppm-every N      and also every N cycles while it runs (to watch a long run)
 #ifdef SYSTEM
 #include "Vpc286_system.h"
 #include "Vpc286_system___024root.h"
@@ -175,6 +176,10 @@ static void print_screen() {
     printf("+%s+\n", std::string(80, '-').c_str());
 }
 
+static void write_ppm(const char* name, const std::vector<uint8_t>& px) {
+    FILE* f = fopen(name, "wb"); if (!f) return;
+    fprintf(f, "P6 640 480 255\n"); fwrite(px.data(), 1, px.size(), f); fclose(f);
+}
 static std::string unescape(const char* s) {
     std::string r;
     for (; *s; s++) {
@@ -195,6 +200,7 @@ static std::string unescape(const char* s) {
 
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
+    long ppm_every = 0;
     long max_cycles = 50000000, after = 3000000; int waits = 2; bool screen = false, quiet = false;
     const char* sdfile = nullptr; const char* save = nullptr; const char* ppm = nullptr;
     std::vector<std::pair<std::string, std::string>> script;
@@ -204,6 +210,7 @@ int main(int argc, char** argv) {
         if (a == "--sd") sdfile = argv[++i];
         else if (a == "--save") save = argv[++i];
         else if (a == "--ppm") ppm = argv[++i];
+        else if (a == "--ppm-every") ppm_every = atol(argv[++i]);
         else if (a == "--peek") peeks.push_back(strtol(argv[++i], 0, 16));
         else if (a == "--cycles") max_cycles = atol(argv[++i]);
         else if (a == "--after") after = atol(argv[++i]);
@@ -238,6 +245,7 @@ int main(int argc, char** argv) {
         bool dbg_valid = false; char dbg_ch = 0;
 #ifdef SYSTEM
         // SDRAM controller: a 32-bit word per request (four in a burst read), 'complete' held until the request goes
+        if (ppm && ppm_every && cycles % ppm_every == 0) write_ppm(ppm, shown);
         if (top->sd_req) st_busy++;
         { auto* r = top->rootp;
           if (r->pc286_system__DOT__core__DOT__is_rom) st_rom++;
@@ -319,7 +327,7 @@ int main(int argc, char** argv) {
            100.0 * (cycles - st_mem - st_rom - st_io) / cycles);
     printf("[RAM: waiting %.1f%% of the time; %ld 16-byte reads (video and code), %ld data reads, %ld writes]\n",
            100.0 * st_busy / cycles, st_burst, st_rd, st_wr);
-    if (ppm) { FILE* f = fopen(ppm, "wb"); fprintf(f, "P6 640 480 255\n"); fwrite(shown.data(), 1, shown.size(), f); fclose(f); }
+    if (ppm) write_ppm(ppm, shown);
 #endif
     if (save && sdfile) { FILE* f = fopen(save, "wb"); fwrite(sd.img.data(), 1, sd.img.size(), f); fclose(f); }
     delete top;

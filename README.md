@@ -25,6 +25,8 @@ Status: work in progress. In simulation the machine boots FreeDOS from an SD car
 
 There is no second processor: everything the machine needs is logic or x86 code in the BIOS.
 
+A program can come back from protected mode by a CPU reset, as on the AT: CMOS byte 0Fh
+(ports 70h/71h, without the clock) and the address in 0040:0067 (`tests/pmtest.asm`).
 Not there yet: expanded memory, a clock that keeps the date. In the 16-colour modes: no data
 rotate; BIOS text there is 8x8 in the top 25 rows.
 The planes take the top 256 KB of the SDRAM (6.75 MB of extended memory are left).
