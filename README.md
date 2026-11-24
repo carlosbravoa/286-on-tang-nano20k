@@ -11,7 +11,7 @@ Status: work in progress. In simulation the machine boots FreeDOS from an SD car
 
 | Part | How |
 |---|---|
-| CPU | [SPK286](https://github.com/aitorgomez-net/SPK286), unmodified, in `ref/SPK286`. Two of its blocks are left out of the build and replaced by stand-ins that fault (`rtl/cpu_trim`): the hardware task switch and LOADALL. That frees about 3,900 logic cells; `FULLCPU=1` builds the whole CPU |
+| CPU | [SPK286](https://github.com/aitorgomez-net/SPK286), unmodified, in `ref/SPK286`. The hardware task switch is left out of the build and replaced by a stand-in that faults (`rtl/cpu_trim`); `NOLOADALL=1` leaves LOADALL out as well (about 3,900 logic cells less in all), `FULLCPU=1` builds the whole CPU |
 | RAM | the board's 8 MB SDRAM: 640 KB, plain RAM at C0000-FBFFF, 6.75 MB above 1 MB; a 32 KB cache in block RAM in front of it (`rtl/sdram_bridge.sv`) |
 | BIOS | our own (`bios/`), 16 KB in block RAM at FC000 |
 | Video | text 40x25 and 80x25, CGA 320x200x4 and 640x200x2, VGA 320x200x256 (mode 13h) with the VGA palette, EGA/VGA 16 colours in four planes (modes 0Dh, 0Eh, 10h, 12h: write modes 0-3, set/reset, bit mask, functions, both read modes, start address, pixel panning, split screen, palette registers; `rtl/ega_planes.sv`); 640x480 at 60 Hz on HDMI, or 640x400 at 70 Hz as a VGA card sends it (`make bitstream LINES=449`) (`rtl/video.sv`) |
@@ -26,7 +26,9 @@ Status: work in progress. In simulation the machine boots FreeDOS from an SD car
 There is no second processor: everything the machine needs is logic or x86 code in the BIOS.
 
 A program can come back from protected mode by a CPU reset, as on the AT: CMOS byte 0Fh
-(ports 70h/71h, without the clock) and the address in 0040:0067 (`tests/pmtest.asm`).
+(ports 70h/71h, without the clock) with methods 05h, 09h and 0Ah (`tests/pmtest.asm`).
+Windows 3.1 starts in standard mode in the simulator (`docs/windows31-sim.png`), with
+Microsoft's HIMEM.SYS, which needs the CPU's LOADALL; not tried on the board yet, no mouse there yet.
 Not there yet: expanded memory, a clock that keeps the date. In the 16-colour modes: no data
 rotate; BIOS text there is 8x8 in the top 25 rows.
 The planes take the top 256 KB of the SDRAM (6.75 MB of extended memory are left).

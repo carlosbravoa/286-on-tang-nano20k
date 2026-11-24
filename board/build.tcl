@@ -9,16 +9,20 @@ foreach f {microcode/generated/spk286_microcode_pkg.sv microcode/generated/spk28
            microcode/generated/spk286_microcode_sync_rom.sv rtl/spk286_protected_pkg.sv rtl/spk286_tss_pkg.sv} {
     add_file "$spk/$f"
 }
-# The CPU without the hardware task switch and LOADALL, unless FULLCPU=1 (see rtl/cpu_trim)
+# The CPU without the hardware task switch, unless FULLCPU=1; NOLOADALL=1 leaves LOADALL out
+# as well (see rtl/cpu_trim)
 set full [expr {[info exists ::env(FULLCPU)] && $::env(FULLCPU) ne ""}]
-set left_out {spk286_task_switch_service.sv spk286_loadall_service.sv spk286_tss_service.sv
+set noload [expr {[info exists ::env(NOLOADALL)] && $::env(NOLOADALL) ne ""}]
+set left_out {spk286_task_switch_service.sv spk286_tss_service.sv
               spk286_tss_descriptor_service.sv spk286_task_segment_service.sv}
+set stand_in {spk286_task_switch_service.sv}
+if {$noload} { lappend left_out spk286_loadall_service.sv; lappend stand_in spk286_loadall_service.sv }
 foreach f [lsort [glob "$spk/rtl/*.sv"]] {
     if {[string match *_pkg.sv $f]} continue
     if {!$full && [lsearch $left_out [file tail $f]] >= 0} continue
     add_file $f
 }
-if {!$full} { foreach f [lsort [glob "$root/rtl/cpu_trim/*.sv"]] { add_file $f } }
+if {!$full} { foreach f $stand_in { add_file "$root/rtl/cpu_trim/$f" } }
 foreach f [lsort [glob "$root/rtl/jtopl/*.v"]] { add_file $f }
 foreach f {pic8259 pit8254 kbd8042 kbd_ch9350 spi_port adlib sblaster ega_planes pc286_core video sdram_bridge uart_tx_fifo pc286_system} {
     add_file "$root/rtl/$f.sv"

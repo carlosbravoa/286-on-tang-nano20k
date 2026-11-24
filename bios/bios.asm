@@ -80,7 +80,8 @@ post:   cli
         mov ss, ax
         mov sp, 0x0100
         ; Was the CPU reset by a program to come back from protected mode? Then CMOS byte 0Fh
-        ; says so: 05h or 0Ah = go on at the address in 0040:0067 (05h: after an end-of-interrupt).
+        ; says so: 05h or 0Ah = go on at the address in 0040:0067 (05h: after an end-of-interrupt),
+        ; 09h = return through the stack saved there.
         mov al, 0x0F
         out 0x70, al
         in al, 0x71
@@ -91,6 +92,8 @@ post:   cli
         out 0x70, al
         xor al, al
         out 0x71, al
+        cmp ah, 0x09
+        je .back9
         cmp ah, 0x0A
         je .back
         cmp ah, 0x05
@@ -100,6 +103,22 @@ post:   cli
 .back:  mov ax, 0x0040
         mov ds, ax
         jmp far [0x0067]
+; 09h: the way the AT BIOS came back from its own block move, which programs use as well:
+; the stack is the one saved in 0040:0067, with DS, ES, the registers of PUSHA and a far
+; return address on it. A20 is turned off, AH = 0.
+.back9: mov ax, 0x0040
+        mov ds, ax
+        mov ss, [0x0069]
+        mov sp, [0x0067]
+        xor al, al
+        out 0x92, al
+        pop ds
+        pop es
+        mov bp, sp
+        mov byte [bp+15], 0
+        popa
+        sti
+        retf 2
 .cold:  mov si, cmos_table           ; what programs look up in the CMOS memory
 .cm:    mov al, [cs:si]
         cmp al, 0xFF
@@ -404,6 +423,10 @@ int15:  sti
         je .cy
         cmp ax, 0xC2FF              ; ours: put the mouse driver's vectors back (DOS takes them)
         je .mouse
+        cmp ah, 0xC2
+        jne .nps
+        jmp int15_ps2
+.nps:
         cmp ah, 0x88
         je .ext
         cmp ah, 0x87

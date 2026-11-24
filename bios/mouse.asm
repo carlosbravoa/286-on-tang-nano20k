@@ -24,6 +24,7 @@ struc MS
     .yrem       resb 1
 endstruc
 E_MOUSE         equ 0x60
+E_PS2           equ 0xB0            ; INT 15h AH=C2h: the program's handler (offset, segment), then 1 = enabled
 %define M(f) [E_MOUSE+MS. %+ f]
 
 int33:  cld
@@ -281,7 +282,30 @@ int74:  cld
         mov al, 0x20
         out 0xA0, al
         out 0x20, al
-        xor di, di                  ; DI = what happened, as the handler's AX
+        test byte [E_PS2+4], 1      ; a program that asked through INT 15h AH=C2h (Windows)
+        jz .own                     ; gets what a PS/2 mouse sends: status, x, y (up is positive)
+        mov ax, [E_PS2]
+        or ax, [E_PS2+2]
+        jz .own
+        and bl, 7
+        or bl, 8
+        or cx, cx
+        jns .xp
+        or bl, 0x10
+.xp:    neg dx
+        jns .yp
+        or bl, 0x20
+.yp:    xor bh, bh
+        xor ch, ch
+        xor dh, dh
+        push bx
+        push cx
+        push dx
+        push 0
+        call far [E_PS2]
+        add sp, 8
+        jmp .done
+.own:   xor di, di                  ; DI = what happened, as the handler's AX
         mov ax, cx
         or ax, dx
         jz .still
@@ -343,3 +367,66 @@ int74:  cld
         pop ds
         popa
         iret
+
+; ── INT 15h AH=C2h: the BIOS interface of a PS/2 mouse (AL = function), from int15 ──
+int15_ps2:
+        push ds
+        push ax
+        mov ax, EBDA_SEG
+        mov ds, ax
+        pop ax
+        cmp al, 7
+        ja .bad
+        je .f7
+        or al, al
+        jz .f0
+        cmp al, 1
+        je .f1
+        cmp al, 5
+        je .f5
+        cmp al, 4
+        je .f4
+        cmp al, 6
+        jne .ok                     ; 2 rate, 3 resolution: nothing to do
+        or bh, bh
+        jnz .ok
+        mov bl, [E_PS2+4]           ; status: bit 5 = enabled
+        shl bl, 5
+        mov cl, 2
+        mov dl, 100
+        jmp .ok
+.f0:    and bh, 1                   ; BH = 1: on
+        mov [E_PS2+4], bh
+        jz .ok
+        push ax
+        push ds
+        xor ax, ax
+        mov ds, ax
+        cli
+        mov word [0x74*4], int74
+        mov [0x74*4+2], cs
+        in al, 0xA1                 ; IRQ 12 open, and the second controller's line
+        and al, 0xEF
+        out 0xA1, al
+        in al, 0x21
+        and al, 0xFB
+        out 0x21, al
+        pop ds
+        pop ax
+        jmp .ok
+.f1:    mov bx, 0x00AA              ; reset: "passed", device 0
+.f5:    mov byte [E_PS2+4], 0
+        jmp .ok
+.f4:    xor bh, bh                  ; device 0: a plain mouse
+        jmp .ok
+.f7:    mov [E_PS2], bx
+        mov [E_PS2+2], es
+.ok:    pop ds
+        xor ah, ah
+        clc
+        sti
+        retf 2
+.bad:   pop ds
+        mov ah, 1
+        stc
+        retf 2

@@ -18,6 +18,7 @@
 typedef Vpc286_system Top;       // the whole system: SDRAM bridge and video included
 #else
 #include "Vpc286_core.h"
+#include "Vpc286_core___024root.h"
 typedef Vpc286_core Top;         // the core alone, RAM answered directly (faster)
 #endif
 #include "verilated.h"
@@ -201,6 +202,9 @@ static std::string unescape(const char* s) {
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
     long ppm_every = 0;
+    std::vector<std::pair<long, std::string>> timed;
+    std::string trace_at;                // (core build) when this text appears: print the last instructions and stop
+    static uint32_t ring[1 << 20]; unsigned ring_n = 0; int trace_nth = 1;
     long max_cycles = 50000000, after = 3000000; int waits = 2; bool screen = false, quiet = false;
     const char* sdfile = nullptr; const char* save = nullptr; const char* ppm = nullptr;
     std::vector<std::pair<std::string, std::string>> script;
@@ -211,6 +215,9 @@ int main(int argc, char** argv) {
         else if (a == "--save") save = argv[++i];
         else if (a == "--ppm") ppm = argv[++i];
         else if (a == "--ppm-every") ppm_every = atol(argv[++i]);
+        else if (a == "--type-at") { long c = atol(argv[++i]); timed.push_back({c, unescape(argv[++i])}); }   // --type-at CYCLE KEYS
+        else if (a == "--trace-at") trace_at = unescape(argv[++i]);
+        else if (a == "--trace-nth") trace_nth = atoi(argv[++i]);     // at its Nth appearance
         else if (a == "--peek") peeks.push_back(strtol(argv[++i], 0, 16));
         else if (a == "--cycles") max_cycles = atol(argv[++i]);
         else if (a == "--after") after = atol(argv[++i]);
@@ -243,6 +250,7 @@ int main(int argc, char** argv) {
         if (cycles == 8) top->reset = 0;
         top->kbd_rx = kb.rx; top->sd_miso = sd.miso;
         bool dbg_valid = false; char dbg_ch = 0;
+        for (auto& t : timed) if (t.first == cycles) kb.type(t.second);
 #ifdef SYSTEM
         // SDRAM controller: a 32-bit word per request (four in a burst read), 'complete' held until the request goes
         if (ppm && ppm_every && cycles % ppm_every == 0) write_ppm(ppm, shown);
@@ -300,6 +308,13 @@ int main(int argc, char** argv) {
         top->clk = 1;
         top->eval();
         dbg_valid = top->dbg_char_valid; dbg_ch = top->dbg_char;
+#ifdef SYSTEM
+#define CPUSIG(x) top->rootp->pc286_system__DOT__core__DOT__cpu__DOT__##x
+#else
+#define CPUSIG(x) top->rootp->pc286_core__DOT__cpu__DOT__##x
+#endif
+        if (!trace_at.empty() && CPUSIG(opcode_start))
+            ring[ring_n++ & 0xFFFFF] = (uint32_t)CPUSIG(events__DOT__instruction_cs_q) << 16 | CPUSIG(debug_instruction_ip);
         top->vio_rdata = 0xFF;
 #endif
         sd.clock(top->sd_sck, top->sd_mosi, top->sd_cs_n);
@@ -307,6 +322,16 @@ int main(int argc, char** argv) {
         if (dbg_valid) {
             char ch = dbg_ch;
             log += ch;
+            if (!trace_at.empty() && log.size() >= trace_at.size() && log.compare(log.size() - trace_at.size(), trace_at.size(), trace_at) == 0 && --trace_nth == 0) {
+                // the last instructions outside the BIOS, and a few of what came after
+                unsigned first = ring_n > (1 << 20) ? ring_n - (1 << 20) : 0, last = ring_n;
+                while (last > first && (ring[(last - 1) & 0xFFFFF] >> 16) == 0xF000) last--;
+                for (unsigned i = last > first + 400 ? last - 400 : first; i < ring_n && i < last + 12; i++) {
+                    uint32_t v = ring[i & 0xFFFFF]; uint32_t a = (v >> 16) * 16 + (v & 0xFFFF);
+                    printf("T %04X:%04X %02X %02X %02X %02X %02X %02X\n", v >> 16, v & 0xFFFF, ram[a], ram[a+1], ram[a+2], ram[a+3], ram[a+4], ram[a+5]);
+                }
+                break;
+            }
             if (!quiet) { putchar(ch); fflush(stdout); }
             if (step < script.size() && log.find(script[step].first, searched) != std::string::npos) {
                 searched = log.size();
