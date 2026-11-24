@@ -9,6 +9,8 @@
 //             bit 2 = 640 wide (else 320); bits 4-3 = lines: 0 200, 1 350, 2 480 (480: only
 //             with LINES = 525). The picture starts at the CRTC start address. A pixel's
 //             four bits choose one of the 16 attribute palette registers (3C0h).
+//             Register 13h there moves the picture left by 0-7 pixels; below the CRTC's
+//             line compare the picture starts again from address 0, not moved (split screen).
 // 200-line modes show every line twice. Video memory is ordinary RAM: a line (or a row of
 // text) is read, 16 bytes at a time, into a line buffer shortly before it is shown (cpu clock side) and shown
 // from there (pixel clock side). Every colour goes through the VGA palette (3C6h-3C9h).
@@ -26,6 +28,7 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
     input  logic        clk,
     input  logic        reset,
     input  logic [15:0] crtc_start, crtc_cursor,
+    input  logic [9:0]  crtc_lc,
     input  logic [5:0]  cursor_start,
     input  logic [4:0]  cursor_end,
     input  logic [7:0]  vid_mode,       // 3D8h: 0 80 columns, 1 graphics, 2 mono palette, 3 on, 4 640 wide, 5 blink
@@ -66,6 +69,12 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
     wire [4:0]  row = ty[8:4];
     wire [3:0]  scan = ty[3:0];
     wire [8:0]  gline = (p350 || p480) ? ty[8:0] : {1'b0, ty[8:1]};   // graphics line
+    // split screen: the first graphics line of the lower part (line compare counts raster lines)
+    wire [9:0]  split = (p350 || p480) ? crtc_lc + 10'd1 : {1'b0, crtc_lc[9:1]} + 10'd1;
+    wire        below = planar && {1'b0, gline} >= split;
+    logic [2:0] pan_q;
+    wire [3:0]  pan  = !planar || below ? 4'd0 : pwide ? {1'b0, pan_q} : {pan_q, 1'b0};
+    wire [9:0]  hxp  = hx + 10'(pan);                                  // the pixel shown at hx
 
     always_ff @(posedge clk_pix) begin
         hsync    <= !(cx >= 10'd656 && cx < 10'd752);
@@ -98,7 +107,7 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
     logic [15:0] tb_wdata, cell_q;
     logic [31:0] gb_wdata, gword_q;
     wire  [6:0]  tcol = col80 ? hx[9:3] : {1'b0, hx[9:4]};
-    wire  [6:0]  gcol = planar ? (pwide ? hx[9:3] : {1'b0, hx[9:4]}) : g13 ? hx[9:3] : {2'b0, hx[9:5]};
+    wire  [6:0]  gcol = planar ? (pwide ? hxp[9:3] : {1'b0, hxp[9:4]}) : g13 ? hx[9:3] : {2'b0, hx[9:5]};
     always_ff @(posedge clk) if (tb_we) textbuf[tb_waddr] <= tb_wdata;
     always_ff @(posedge clk) if (gb_we) gbuf[gb_waddr] <= gb_wdata;
     always_ff @(posedge clk_pix) cell_q  <= textbuf[{row[0], tcol}];
@@ -111,8 +120,10 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
     logic [15:0] off_q;                 // byte offset of the unit in its segment
     logic        seg_a_q, gfx_q, buf_q, pl_q;
     wire  [7:0]  u = fetch_unit[7:0];
-    wire  [15:0] pl_off    = crtc_start + (pwide ? {1'b0, fetch_unit, 6'b0} + {3'b0, fetch_unit, 4'b0}
-                                                  : {2'b0, fetch_unit, 5'b0} + {4'b0, fetch_unit, 3'b0});
+    wire         f_below   = {1'b0, fetch_unit} >= split;
+    wire  [8:0]  f_line    = f_below ? fetch_unit - split[8:0] : fetch_unit;
+    wire  [15:0] pl_off    = (f_below ? 16'd0 : crtc_start) + (pwide ? {1'b0, f_line, 6'b0} + {3'b0, f_line, 4'b0}
+                                                                      : {2'b0, f_line, 5'b0} + {4'b0, f_line, 3'b0});
     wire  [15:0] text_cell = crtc_start + (col80 ? {3'b0, u, 6'b0} + {5'b0, u, 4'b0} : {4'b0, u, 5'b0} + {6'b0, u, 3'b0});
     wire  [15:0] cga_off   = {2'b0, u[0], 13'b0} + {3'b0, u[7:1], 6'b0} + {5'b0, u[7:1], 4'b0};
     wire  [15:0] g13_off   = {u, 8'b0} + {2'b0, u, 6'b0};
@@ -132,7 +143,7 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
             2'd0: if (tgl_s[2] != tgl_s[1]) begin
                       gfx_q <= gfx; seg_a_q <= g13; pl_q <= planar; buf_q <= u[0]; word_q <= '0; fst_q <= 2'd1;
                       off_q  <= planar ? pl_off : g13 ? g13_off : gfx ? cga_off : {text_cell[14:0], 1'b0};
-                      last_q <= planar ? (pwide ? 7'd79 : 7'd39) : g13 ? 7'd79 : gfx ? 7'd19 : 7'd40;
+                      last_q <= planar ? (pwide ? 7'd80 : 7'd40) : g13 ? 7'd79 : gfx ? 7'd19 : 7'd40;
                   end
             2'd1: if (vf_ack) fst_q <= 2'd2;
             2'd2: if (gfx_q) begin
@@ -190,8 +201,10 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
             attr_ff_q <= !attr_ff_q;
             if (!attr_ff_q) attr_idx_q <= vio_wdata[4:0];
             else if (!attr_idx_q[4]) attr[attr_idx_q[3:0]] <= vio_wdata[5:0];
+            else if (attr_idx_q == 5'h13) pan_q <= vio_wdata[2:0];
         end
         if (attr_reset || reset) attr_ff_q <= 1'b0;
+        if (reset) pan_q <= '0;
     end
     always_comb case (vio_addr)
         4'h0: vio_rdata = {3'b001, attr_idx_q};
@@ -243,7 +256,7 @@ module video #(parameter FONT_HEX = "fonts/vga8x16.hex", parameter int LINES = 5
 
     always_ff @(posedge clk_pix) begin
         // stage 1: the cell / the word are in cell_q, gword_q
-        hx1_q   <= hx[4:0];
+        hx1_q   <= hxp[4:0];
         scan1_q <= scan;
         vis1_q  <= in_x && in_y && vid_mode[3];
         cur1_q  <= cellnum == crtc_cursor && cursor_on &&

@@ -185,6 +185,24 @@ v_setmode:
         mov al, [cs:bx]
 .v:     out 0xEA, al
         call pl_defaults
+        push ax
+        mov dx, 0x3D4               ; no split screen, the picture not moved
+        mov ax, 0xFF18
+        out dx, ax
+        mov ax, 0x1007
+        out dx, ax
+        mov ax, 0x4009
+        out dx, ax
+        mov dx, 0x3DA
+        in al, dx
+        mov dx, 0x3C0
+        mov al, 0x13
+        out dx, al
+        xor al, al
+        out dx, al
+        mov al, 0x20
+        out dx, al
+        pop ax
         test byte F_AX, 0x80
         jnz .keep
         xor di, di

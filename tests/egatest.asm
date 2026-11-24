@@ -1,5 +1,7 @@
 ; A boot sector that shows a test picture in a 16-colour mode (0Dh, 0Eh, 10h or 12h):
 ;   nasm -DMODE=0x12 -DCOLS=80 -DLINES=480 -f bin tests/egatest.asm -o build/ega12.bin
+; With -DSPLIT=n the picture is then scrolled (2 bytes and 4 pixels left) above raster line n
+; and starts again, not scrolled, below it.
 ; 16 colour bars drawn the way programs do it (set/reset), a line of dots through the BIOS,
 ; text in colours, and the colour of one dot read back (it prints 0C).
         cpu 286
@@ -63,6 +65,26 @@ start:  xor ax, ax
         call nib
         pop ax
         call nib
+%ifdef SPLIT
+        mov dx, 0x3D4               ; scrolled: start 2 bytes on, 4 pixels more; split at raster line SPLIT
+        mov ax, 0x020D
+        out dx, ax
+        mov ax, (SPLIT & 0xFF) * 256 + 0x18
+        out dx, ax
+        mov ax, ((SPLIT >> 8) & 1) * 0x1000 + 0x07
+        out dx, ax
+        mov ax, ((SPLIT >> 9) & 1) * 0x4000 + 0x09
+        out dx, ax
+        mov dx, 0x3DA
+        in al, dx
+        mov dx, 0x3C0
+        mov al, 0x13
+        out dx, al
+        mov al, 4
+        out dx, al
+        mov al, 0x20
+        out dx, al
+%endif
 .halt:  hlt
         jmp .halt
 nib:    and al, 0x0F

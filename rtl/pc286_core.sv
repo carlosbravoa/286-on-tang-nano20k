@@ -35,6 +35,7 @@ module pc286_core #(
     input  logic        sd_miso,
     // video
     output logic [15:0] crtc_start,     // first character cell shown
+    output logic [9:0]  crtc_lc,        // line compare: below this raster line the picture starts again from 0
     output logic [15:0] crtc_cursor,    // cursor cell
     output logic [5:0]  cursor_start,   // bit 5 = cursor off
     output logic [4:0]  cursor_end,
@@ -331,6 +332,9 @@ module pc286_core #(
             if (sel_crtc && io_addr[0]) case (crtc_idx_q)
                 5'h0A: cursor_start <= io_wdata[5:0];
                 5'h0B: cursor_end <= io_wdata[4:0];
+                5'h07: crtc_lc[8] <= io_wdata[4];
+                5'h09: crtc_lc[9] <= io_wdata[6];
+                5'h18: crtc_lc[7:0] <= io_wdata;
                 5'h0C: crtc_start[15:8] <= io_wdata;
                 5'h0D: crtc_start[7:0] <= io_wdata;
                 5'h0E: crtc_cursor[15:8] <= io_wdata;
@@ -344,7 +348,7 @@ module pc286_core #(
         if (reset) begin
             for (int i = 0; i < 4; i++) map_q[i][9] <= 1'b0;
             a20_q <= 1'b0; p61_q <= 2'b00; rst_cnt_q <= '0; crtc_idx_q <= '0;
-            crtc_start <= '0; crtc_cursor <= '0; cursor_start <= 6'd13; cursor_end <= 5'd14;
+            crtc_lc <= '1; crtc_start <= '0; crtc_cursor <= '0; cursor_start <= 6'd13; cursor_end <= 5'd14;
             vid_mode <= 8'h29; vid_color <= 8'h00; vid_ctrl <= 8'h00;
         end
     end

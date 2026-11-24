@@ -14,7 +14,7 @@ Status: work in progress. In simulation the machine boots FreeDOS from an SD car
 | CPU | [SPK286](https://github.com/aitorgomez-net/SPK286), unmodified, in `ref/SPK286`. Two of its blocks are left out of the build and replaced by stand-ins that fault (`rtl/cpu_trim`): the hardware task switch and LOADALL. That frees about 3,900 logic cells; `FULLCPU=1` builds the whole CPU |
 | RAM | the board's 8 MB SDRAM: 640 KB, plain RAM at C0000-FBFFF, 6.75 MB above 1 MB; a 32 KB cache in block RAM in front of it (`rtl/sdram_bridge.sv`) |
 | BIOS | our own (`bios/`), 16 KB in block RAM at FC000 |
-| Video | text 40x25 and 80x25, CGA 320x200x4 and 640x200x2, VGA 320x200x256 (mode 13h) with the VGA palette, EGA/VGA 16 colours in four planes (modes 0Dh, 0Eh, 10h, 12h: write modes 0-3, set/reset, bit mask, functions, both read modes, start address, palette registers; `rtl/ega_planes.sv`); 640x480 at 60 Hz on HDMI, or 640x400 at 70 Hz as a VGA card sends it (`make bitstream LINES=449`) (`rtl/video.sv`) |
+| Video | text 40x25 and 80x25, CGA 320x200x4 and 640x200x2, VGA 320x200x256 (mode 13h) with the VGA palette, EGA/VGA 16 colours in four planes (modes 0Dh, 0Eh, 10h, 12h: write modes 0-3, set/reset, bit mask, functions, both read modes, start address, pixel panning, split screen, palette registers; `rtl/ega_planes.sv`); 640x480 at 60 Hz on HDMI, or 640x400 at 70 Hz as a VGA card sends it (`make bitstream LINES=449`) (`rtl/video.sv`) |
 | Keyboard | CH9350 (or a Pico acting as one) on pin 53, as on the Atari816; turned into set 1 scancodes at ports 60h/64h |
 | Mouse | the same CH9350; the driver (INT 33h) is in the BIOS |
 | Disk | SD card on an SPI port (E0h/E1h); the BIOS reads and writes sectors itself |
@@ -25,8 +25,8 @@ Status: work in progress. In simulation the machine boots FreeDOS from an SD car
 
 There is no second processor: everything the machine needs is logic or x86 code in the BIOS.
 
-Not there yet: expanded memory, a clock that keeps the date. In the 16-colour modes: no smooth
-scrolling by pixels, no split screen, no data rotate; BIOS text there is 8x8 in the top 25 rows.
+Not there yet: expanded memory, a clock that keeps the date. In the 16-colour modes: no data
+rotate; BIOS text there is 8x8 in the top 25 rows.
 The planes take the top 256 KB of the SDRAM (6.75 MB of extended memory are left).
 
 ## SD card
