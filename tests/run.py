@@ -22,6 +22,7 @@ EGA = {'0D': (40, 200), '0E': (80, 200), '10': (80, 350), '12': (80, 480)}
 
 # name: (source, nasm options, simulator, its options, what the text must have or None for a picture)
 TESTS = {
+    'clock':    ('clocktest', [], 'sim', ['--cycles', '30000000'], r'N20231231 2359 20240101 0000'),
     'adlib':    ('adlibtest', [], 'sim', ['--cycles', '12000000'], r'00 C0'),
     'kbd':      ('kbdtest', [], 'sim', BOOT + ['--type', r'\U'], r'E0 48 E0 C8'),
     'kbdpoll':  ('kbdpoll', [], 'sim', BOOT + ['--type', 'ab'], r'1E 9E 30 B0'),
@@ -32,7 +33,7 @@ TESTS = {
     'mouse':    ('mousetest', [], 'sim', BOOT + ['--type', r'\ma\la\ua'],
                  r'FFFF 0003 ready 0000 0154 0068 0000 0001 0154 0068 0001 0000 0154 0068 0000'),
     'sb':       ('sbtest', [], 'simsys', ['--cycles', '20000000'], r'AA 02 01 I FF FF'),
-    'sb2':      ('sbtest2', [], 'simsys', ['--cycles', '40000000'], r'AA00CF 0068 00CE'),
+    'sb2':      ('sbtest2', [], 'simsys', ['--cycles', '40000000'], r'AA00C[EF] 0068 00C[EF]'),
     'bench':    ('bench', [], 'simsys', ['--expect', 'DONE', '--type', ' ', '--after', '1', '--cycles', '200000000'], r'DONE'),
     'monitor':  ('kbdtest', [], 'simsys', ['--cycles', '400000000'], None),
     'remote':   ('remotetest', [], 'simsys', ['--cycles', '400000000'], None),

@@ -18,6 +18,8 @@
   save ADDR LENGTH FILE  RAM to a file
   load ADDR FILE         a file to RAM
   reset                  the reset button (RAM is kept)
+  clock [YYYY-MM-DD HH:MM:SS]   set the machine's date and time (default: this computer's);
+                         at the DOS prompt it also tells DOS the date
   put FILE|DIR ... DEST  copy files of this computer to a DOS directory (C:/GAMES or C:\\GAMES;
                          it is made if missing). A directory goes with what is in it, as
                          DEST\\NAME. The machine must be at the DOS prompt.
@@ -282,6 +284,22 @@ def get(m, names, dest):
             print('%s  %d bytes' % (os.path.join(dest, n), size))
         if not count: print('\n'.join([l for l in m.screen() if l][-4:])); raise SystemExit('nothing came')
 
+def clock(m, when):
+    import datetime
+    t = datetime.datetime.strptime(' '.join(when), '%Y-%m-%d %H:%M:%S') if when else datetime.datetime.now()
+    ticks = round((t.hour * 3600 + t.minute * 60 + t.second + t.microsecond / 1e6) * 1193182 / 65536)
+    # the date where the BIOS keeps it (bios.asm, E_CLOCK), then the tick count: the time of day
+    m.write(0x9FCE0, struct.pack('<HHBB', 0xC10C, t.year, t.month, t.day))
+    for _ in range(5):                                      # the machine counts on while we write
+        m.write(0x46C, struct.pack('<I', ticks) + b'\0')
+        if abs(struct.unpack('<I', m.read(0x46C, 4))[0] - ticks) < 40: break
+    else: raise SystemExit('the tick count does not take the time')
+    print('the machine has %s' % t.strftime('%Y-%m-%d %H:%M:%S'))
+    mode = m.read(0x449, 1)[0]
+    if (mode <= 3 or mode == 7) and m.prompt():
+        m.type('date %s\r' % t.strftime('%m-%d-%Y')); print('and DOS was told the date')
+    else: print('DOS keeps its own date until it starts again, or until DATE is typed')
+
 def addr(s):
     if ':' in s: seg, off = s.split(':'); return int(seg, 16) * 16 + int(off, 16)
     return int(s, 16)
@@ -332,6 +350,7 @@ def main():
         with open(a[2], 'wb') as f: f.write(m.read(addr(a[0]), int(a[1], 0)))
     elif c == 'load': m.write(addr(a[0]), open(a[1], 'rb').read())
     elif c == 'reset': m.cmd(b'R'); print('reset')
+    elif c == 'clock': clock(m, a)
     elif c == 'put' and len(a) > 1: put(m, a[:-1], a[-1])
     elif c == 'get' and len(a) > 1: get(m, a[:-1], a[-1])
     elif c == 'serve':

@@ -70,6 +70,12 @@ E_ROP           equ 0xD1            ; 2 read, 3 write
 E_RCOUNT        equ 0xD2            ; sectors
 E_RLBA          equ 0xD4            ; the first one
 E_RBUF          equ 0xD8            ; where in memory
+E_CLOCK         equ 0xE0            ; CLOCK_SIG if the date below is known; a reset keeps E0-EF
+E_YEAR          equ 0xE2            ; a word
+E_MONTH         equ 0xE4
+E_DAY           equ 0xE5
+E_TICKS         equ 0xE6            ; the tick count, kept over a reset
+CLOCK_SIG       equ 0xC10C
 
 ; ───────────────────────────── reset ─────────────────────────────
 cmos_table:                         ; register, value; ends with FFh
@@ -183,6 +189,8 @@ post:   cli
         xor ax, ax
         mov es, ax
         mov ds, ax
+        mov bx, [0x46C]             ; the time of day, if this is a reset and not power on
+        mov bp, [0x46E]
         xor di, di
         mov cx, 256
 .vec:   mov ax, int_dummy
@@ -208,9 +216,14 @@ post:   cli
         mov es, ax
         xor di, di
         xor ax, ax
-        mov cx, 0x200
-        rep stosw                   ; clear the EBDA
+        mov cx, E_CLOCK / 2
+        rep stosw                   ; clear the EBDA, but for the clock
+        add di, 16
+        mov cx, 0x200 - E_CLOCK / 2 - 8
+        rep stosw
         mov word [es:0], 1          ; its size in KB
+        mov [es:E_TICKS], bx
+        mov [es:E_TICKS+2], bp
         push es
         pop ds
         call mouse_reset
@@ -224,6 +237,7 @@ post:   cli
         mov word [BD_KBUFSTART], BD_KBUF
         mov word [BD_KBUFEND], BD_KBUF + 32
         mov byte [BD_KFLAGS3], 0x10
+        call clock_init
         mov ax, 0x0003
         int 0x10
         sti
@@ -387,6 +401,7 @@ int08:  push ax
         mov word [BD_TICKS], 0
         mov word [BD_TICKS+2], 0
         mov byte [BD_MIDNIGHT], 1
+        call clock_nextday
 .n:     int 0x1C
         mov al, 0x20
         out 0x20, al
@@ -405,8 +420,17 @@ int1a:  sti
         jz .get
         cmp ah, 1
         je .set
+        cmp ah, 2
+        je clock_rtime
+        cmp ah, 3
+        je clock_stime
+        cmp ah, 4
+        je clock_rdate
+        cmp ah, 5
+        je clock_sdate
+.none:
         pop ds
-        stc                         ; no real-time clock
+        stc                         ; no real-time clock, or nobody has set it
         retf 2
 .get:   cli
         mov cx, [BD_TICKS+2]
@@ -423,6 +447,225 @@ int1a:  sti
         sti
         pop ds
         iret
+
+; The clock. There is no clock chip: the time of day is the tick count, the date is kept in
+; the EBDA and moved on at midnight. Both live through a reset, not through power off; the
+; other computer sets them (pc286ctl.py clock), or DOS' DATE and TIME do.
+; All four are entered with DS = 40h and the caller's DS on the stack.
+clock_valid:                        ; DS = EBDA; zero flag set if the date is known
+        push ax
+        mov ax, EBDA_SEG
+        mov ds, ax
+        pop ax
+        cmp word [E_CLOCK], CLOCK_SIG
+        ret
+bin2bcd:                            ; AL < 100
+        aam
+        shl ah, 4
+        or al, ah
+        ret
+bcd2bin:
+        mov ah, al
+        shr ah, 4
+        and al, 0x0F
+        aad
+        ret
+
+clock_rtime:                        ; CH hours, CL minutes, DH seconds, in BCD
+        push bx
+        cli
+        mov ax, [BD_TICKS]
+        mov dx, [BD_TICKS+2]
+        sti
+        call clock_valid
+        pop bx
+        jne int1a.none
+        push bx
+        xor ch, ch                  ; an hour is 65543 ticks
+.h:     sub ax, 7
+        sbb dx, 1
+        jc .hd
+        inc ch
+        jmp .h
+.hd:    add ax, 7
+        adc dx, 1
+        mov bx, 1092                ; a minute
+        div bx
+        mov cl, al
+        mov ax, dx                  ; 18.2 a second
+        mov bx, 10
+        mul bx
+        mov bx, 182
+        div bx
+        cmp al, 59
+        jbe .s
+        mov al, 59
+.s:     mov dh, al
+        cmp cl, 59
+        jbe .m
+        mov cl, 59
+        mov dh, 59
+.m:     cmp ch, 23
+        jbe .ok
+        mov cx, 23 * 256 + 59
+        mov dh, 59
+.ok:    mov al, dh
+        call bin2bcd
+        mov dh, al
+        mov al, cl
+        call bin2bcd
+        mov cl, al
+        mov al, ch
+        call bin2bcd
+        mov ch, al
+        xor dl, dl
+        pop bx
+clock_ok:
+        pop ds
+        xor ah, ah
+        clc
+        retf 2
+
+clock_stime:
+        push bx
+        push si
+        push di
+        push dx
+        mov al, ch
+        call bcd2bin
+        xor ah, ah
+        mov si, ax                  ; hours * 65536
+        mov bl, 7
+        mul bl
+        mov di, ax                  ; + hours * 7
+        mov al, cl
+        call bcd2bin
+        xor ah, ah
+        mov bx, 1092
+        mul bx
+        add di, ax
+        adc si, 0
+        pop dx
+        push dx
+        mov al, dh
+        call bcd2bin
+        mov bl, al
+        mov ah, 18
+        mul ah
+        add di, ax
+        adc si, 0
+        mov al, bl
+        xor ah, ah
+        mov bl, 5
+        div bl
+        xor ah, ah
+        add di, ax
+        adc si, 0
+        cli
+        mov [BD_TICKS], di
+        mov [BD_TICKS+2], si
+        mov byte [BD_MIDNIGHT], 0
+        sti
+        pop dx
+        pop di
+        pop si
+        pop bx
+        jmp clock_ok
+
+clock_rdate:                        ; CH century, CL year, DH month, DL day, in BCD
+        call clock_valid
+        jne int1a.none
+        push bx
+        mov ax, [E_YEAR]
+        mov bl, 100
+        div bl
+        mov bl, ah
+        call bin2bcd
+        mov ch, al
+        mov al, bl
+        call bin2bcd
+        mov cl, al
+        mov al, [E_MONTH]
+        call bin2bcd
+        mov dh, al
+        mov al, [E_DAY]
+        call bin2bcd
+        mov dl, al
+        pop bx
+        jmp clock_ok
+
+clock_sdate:
+        call clock_valid
+        push bx
+        mov al, ch
+        call bcd2bin
+        mov bl, 100
+        mul bl
+        mov bx, ax
+        mov al, cl
+        call bcd2bin
+        xor ah, ah
+        add ax, bx
+        mov [E_YEAR], ax
+        mov al, dh
+        call bcd2bin
+        mov [E_MONTH], al
+        mov al, dl
+        call bcd2bin
+        mov [E_DAY], al
+        mov word [E_CLOCK], CLOCK_SIG
+        pop bx
+        jmp clock_ok
+
+clock_nextday:                      ; midnight
+        push ds
+        push ax
+        push bx
+        call clock_valid
+        jne .x
+        inc byte [E_DAY]
+        mov bl, [E_MONTH]
+        xor bh, bh
+        mov al, [cs:clock_days+bx-1]
+        cmp bl, 2
+        jne .c
+        test byte [E_YEAR], 3
+        jnz .c
+        inc al                      ; a leap year (right until 2100)
+.c:     cmp [E_DAY], al
+        jbe .x
+        mov byte [E_DAY], 1
+        inc byte [E_MONTH]
+        cmp byte [E_MONTH], 12
+        jbe .x
+        mov byte [E_MONTH], 1
+        inc word [E_YEAR]
+.x:     pop bx
+        pop ax
+        pop ds
+        ret
+clock_days:     db 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+
+clock_init:                         ; after a reset: the time of day goes on from where it was
+        push ds
+        call clock_valid
+        jne .no
+        mov al, [E_MONTH]           ; and memory that is not ours does not pass for a date
+        dec al
+        cmp al, 12
+        jae .bad
+        mov cx, [E_TICKS+2]
+        mov dx, [E_TICKS]
+        cmp cx, 0x18
+        jae .no
+        mov ax, 0x40
+        mov ds, ax
+        mov [BD_TICKS], dx
+        mov [BD_TICKS+2], cx
+        jmp .no
+.bad:   mov word [E_CLOCK], 0
+.no:    pop ds
+        ret
 
 ; ───────────────────────────── INT 15h: system ─────────────────────────────
 int15:  sti
