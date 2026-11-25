@@ -51,6 +51,8 @@ class Link:
         a[6][termios.VMIN] = 0; a[6][termios.VTIME] = 0
         termios.tcsetattr(self.fd, termios.TCSANOW, a)
         termios.tcflush(self.fd, termios.TCIFLUSH)
+        time.sleep(0.05)                                    # what the adapter still held from before
+        while select.select([self.fd], [], [], 0.05)[0]: os.read(self.fd, 4096)
         self.timeout = timeout; self.text = bytearray(); self.high = None
 
     def recv(self, n, timeout=None):
