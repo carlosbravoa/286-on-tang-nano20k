@@ -6,7 +6,8 @@ ports PC software expects. The goal is DOS and games.
 
 Status: work in progress. In simulation the machine boots FreeDOS from an SD card image
 (floppy or hard disk). On the board it boots FreeDOS, runs games (Monkey Island, Lotus,
-SkyRoads) and Windows 3.1 in standard mode, with the mouse.
+SkyRoads, Commander Keen 4) and Windows 3.1 in standard mode, with the mouse. Another computer
+can type, read the screen and copy files to and from its disk over the USB cable.
 
 ![Windows 3.1 on the board: Paintbrush, Calculator and Clock](docs/windows31-board.jpg)
 
@@ -20,11 +21,11 @@ SkyRoads) and Windows 3.1 in standard mode, with the mouse.
 | Video | text 40x25 and 80x25, CGA 320x200x4 and 640x200x2, VGA 320x200x256 (mode 13h) with the VGA palette, EGA/VGA 16 colours in four planes (modes 0Dh, 0Eh, 10h, 12h: write modes 0-3, set/reset, bit mask, functions, both read modes, start address, line length, pixel panning, split screen, palette registers; `rtl/ega_planes.sv`); 640x480 at 60 Hz on HDMI, or 640x400 at 70 Hz as a VGA card sends it (`make bitstream LINES=449`) (`rtl/video.sv`) |
 | Keyboard | CH9350 (or a Pico acting as one) on pin 53, as on the Atari816; turned into set 1 scancodes at ports 60h/64h |
 | Mouse | the same CH9350; the driver (INT 33h) is in the BIOS, and so is the interface of a PS/2 mouse (INT 15h AH=C2h), which Windows uses |
-| Disk | SD card on an SPI port (E0h/E1h); the BIOS reads and writes sectors itself |
+| Disk | SD card on an SPI port (E0h/E1h); the BIOS reads and writes sectors itself. Drive B: is served by another computer over the PC link |
 | AdLib | OPL2 at 388h/389h ([JTOPL](https://github.com/jotego/jtopl), `rtl/jtopl`), mixed with the speaker into the HDMI sound |
 | Sound Blaster | version 2.0 at 220h, IRQ 7, DMA 1: 8-bit sound, direct or through DMA (`rtl/sblaster.sv`, with the one DMA channel it needs); no recording, MIDI or compressed sound |
 | Timer, interrupts, speaker | 8254 (channels 0 and 2), two 8259s, port 61h; the speaker is heard over HDMI |
-| Remote control | a monitor on the USB serial port types keys, moves the mouse, reads and writes RAM, resets the machine and copies files to and from its disk (`rtl/monitor.sv`, `tools/pc286ctl.py`; see below) |
+| PC link | a monitor on the USB serial port types keys, moves the mouse, reads and writes RAM, resets the machine and copies files to and from its disk (`rtl/monitor.sv`, `tools/pc286ctl.py`; see below and [docs/pc-link.md](docs/pc-link.md)) |
 | Memory window | D0000-DFFFF can show any four 16 KB pages of the 8 MB (ports ECh-EEh): the BIOS copies to and from extended memory with it (INT 15h AH=87h), expanded memory will use it |
 
 There is no second processor: everything the machine needs is logic or x86 code in the BIOS.
@@ -51,7 +52,8 @@ takes its interrupt vectors at start, and this has the BIOS put them back (INT 1
 
 Layout: sector 0 is the partition table (one FAT16 partition from sector 4032, up to 2 GB);
 sector 64 can hold a floppy image, which is then drive A: and is booted first. C: is an
-ordinary partition: it can be mounted on a PC to copy files.
+ordinary partition: it can be mounted on a PC to copy files. Files can also be sent to a card
+that is in the machine: `tools/pc286ctl.py put FILE C:/DIR` (see the PC link below).
 
     tools/mkhd.py build/hd.img --size-mb 64 --from FLOPPY.img --root dos-disk --xms FDXMS286.SYS
     tools/mkcard.py build/card.img --hd build/hd.img [--floppy FLOPPY.img]
@@ -63,33 +65,37 @@ Windows: install it once (on a PC emulator, onto `build/hd.img`), copy its direc
 `dos-disk/WINDOWS`, and `make card` does the rest: with `WINDOWS/HIMEM.SYS` there, the card
 loads that driver and not FDXMS286, and `C:\WINDOWS` is on the path. Then `win`.
 
-## Remote control
+## PC link: remote control and file transfer
 
-The board's USB serial port sends the BIOS' text (115200 8N1) and takes commands for a small
-monitor in the FPGA. The machine's software has no part in it, so it works whatever runs.
+The board's USB cable carries a serial port (115200 8N1). It sends the BIOS' text and takes
+commands for a small monitor in the FPGA, which `tools/pc286ctl.py` on the other computer
+talks to. The monitor is hardware beside the CPU, so keys, mouse, screen and memory work
+whatever the machine runs. The full guide is [docs/pc-link.md](docs/pc-link.md).
 
-    tools/pc286ctl.py type 'dir\r'          # keys
+    tools/pc286ctl.py ping                            # is the machine there?
+    tools/pc286ctl.py type 'dir\r'                    # keys
     tools/pc286ctl.py key ctrl-alt-del
-    tools/pc286ctl.py screen                # the text screen
-    tools/pc286ctl.py shot picture.png      # a graphics screen
-    tools/pc286ctl.py peek 40:17 2          # RAM; poke, save and load a file
-    tools/pc286ctl.py mouse 20 -5
+    tools/pc286ctl.py screen                          # the text screen
+    tools/pc286ctl.py wait 'C:\>' 60                  # until that text is on the screen
+    tools/pc286ctl.py shot picture.png                # a graphics screen
+    tools/pc286ctl.py mouse 20 -5                     # and click
+    tools/pc286ctl.py peek 40:17 2                    # RAM; also poke, save and load a file
     tools/pc286ctl.py reset
 
-The port is `--port`, else `$PC286_PORT`, else `/dev/ttyUSB1`. It reads RAM only: not the
-ROM, not the video registers (a picture has the BIOS' colours and starts at the start of
-video memory). The same tool talks to the simulator: `build/simsys --pty build/pty ...`,
-then `--port build/pty --timeout 300`.
-
-Files go the same way. While the tool asks for it, the BIOS has a drive B: whose sectors come
-from the other computer (it leaves each request in its data area, and the tool reads and
-writes the machine's memory). At the DOS prompt:
+Files, with the machine at the DOS prompt:
 
     tools/pc286ctl.py put game.zip mygame/ C:/GAMES   # files and whole directories
     tools/pc286ctl.py get 'C:/GAMES/SAVE*.DAT' saves/
-    tools/pc286ctl.py serve disk.img                  # be drive B: with an image
+    tools/pc286ctl.py serve disk.img                  # be drive B: with a FAT image
 
-About 11 KB a second to the machine and 5 KB a second back; names must be 8.3.
+They go through a drive B: that has no hardware: the BIOS leaves each request in its data
+area, and the tool reads and writes the machine's memory through the monitor. About 8 to
+11 KB a second to the machine and 5 KB a second back; names must be 8.3.
+
+The port is `--port`, else `$PC286_PORT`, else `/dev/ttyUSB1`. Only RAM is read: not the ROM,
+not the video registers (a picture has the BIOS' colours and starts at the start of video
+memory). The same tool talks to the simulator: `build/simsys --pty build/pty ...`, then
+`--port build/pty --timeout 300`.
 
 ## Directories
 
@@ -99,7 +105,9 @@ About 11 KB a second to the machine and 5 KB a second back; names must be 8.3.
 - `sim/` the simulator (Verilator): RAM, an SD card, a CH9350 keyboard and the serial port as models
 - `tools/` card and hard disk images, a FAT tool, the remote control, the keyboard table, the palette
 - `tests/` small boot sectors that test one thing each (video modes, mouse, memory move,
-  protected mode, sound), and `tests/run.py`, which runs them all in the simulator
+  protected mode, sound, the PC link and its drive B:), and `tests/run.py`, which runs them all
+  in the simulator
+- `docs/` the PC link guide, pictures
 - `board/` pins, timing constraints, the Gowin build script
 - `fit/` the first measurements (SPK286 alone on this FPGA)
 - `ref/` reference repositories and DOS images (not in git; see below)
