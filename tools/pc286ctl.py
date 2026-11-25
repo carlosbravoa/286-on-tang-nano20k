@@ -178,7 +178,7 @@ class Link:
         line = self.screen(row, row)[0]
         return col > 0 and len(line) == col and line.endswith('>')
 
-    def serve(self, image, done=None, quiet=False):
+    def serve(self, image, done=None, quiet=False, first=None):
         """be drive B: with this image until done() says so (asked when the machine is idle)"""
         f = open(image, 'r+b'); boot = f.read(512)
         spt, heads = struct.unpack_from('<HH', boot, 0x18)
@@ -191,6 +191,7 @@ class Link:
             self.write(self.REMOTE, struct.pack('<BBBBHII', 1, spt, heads, 4, cyls, 0, total))
             self.write(self.REMOTE + 0x10, b'\0'); self.write(self.REMOTE + 0x0E, b'\1')
         hello()
+        if first: first()                                   # drive B: is there from here on
         last = req = time.time(); sent = got = 0
         try:
             while True:
@@ -224,8 +225,7 @@ class Link:
                 raise SystemExit('DOS does not come back to its prompt:\n' + '\n'.join(l for l in self.screen() if l))
             return False
         # the request the BIOS waits for must not wait for our typing: first say we are there
-        self.type(line + '\r'); time.sleep(0.3)
-        self.serve(image, done)
+        self.serve(image, done, first=lambda: self.type(line + '\r'))
 
 def mkimage(path, kb):
     """an empty FAT image with room for kb: a 1.44 MB floppy, or as big as it takes"""
