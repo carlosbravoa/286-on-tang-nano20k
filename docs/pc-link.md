@@ -7,6 +7,7 @@ computer talks to it. With it you can:
 - type on the machine's keyboard and move its mouse
 - read its text screen, or save a picture of a graphics screen
 - copy files and directories to and from its disk
+- set its date and time
 - read and write its memory, and press its reset button
 
 The monitor is hardware beside the CPU, not a program in the machine. Keys, mouse, screen,
@@ -116,6 +117,20 @@ the sectors straight into or out of the machine's memory, and marks the request 
 - When nothing serves it, B: answers "not ready" at once.
 
 The places are in `bios/disk.asm` (`d_remote`) and `bios/bios.asm` (`E_REMOTE`...).
+
+## Date and time
+
+    tools/pc286ctl.py clock                           # this computer's date and time
+    tools/pc286ctl.py clock 1994-06-01 20:30:00       # or any other
+
+The machine has no clock chip and no battery. The BIOS keeps the time of day as its tick
+count and the date in its data area, moves the date on at midnight, and answers the usual
+clock calls (INT 1Ah, AH=02h to 05h), so DOS reads both when it starts. They live through a
+reset, not through power off: run `clock` once after plugging the board in.
+
+A DOS that is already running keeps its own date, so at the DOS prompt `clock` also types
+the `date` command; anywhere else it says that DOS will have the date at its next start.
+DOS' own `DATE` and `TIME` commands set the BIOS' clock too. Needs the bitstream after v0.3.0.
 
 ## Memory and reset
 

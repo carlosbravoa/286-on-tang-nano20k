@@ -35,7 +35,9 @@ A program can come back from protected mode by a CPU reset, as on the AT: CMOS b
 Windows 3.1 runs in standard mode, on the board too (`docs/windows31-sim.png` is the
 simulator's picture): on FreeDOS with Microsoft's HIMEM.SYS, which needs the CPU's LOADALL;
 VGA 640x480 in 16 colours, the PS/2 mouse driver. Windows refuses other XMS drivers.
-Not there yet: expanded memory, a clock that keeps the date. In the 16-colour modes: no data
+The clock is the BIOS' (INT 1Ah): the time of day is its tick count, the date is kept beside it;
+both live through a reset, not through power off, and the PC link sets them. Not there yet:
+expanded memory. In the 16-colour modes: no data
 rotate; BIOS text there is 8x8 in the top 25 rows.
 The planes take the top 256 KB of the SDRAM (6.75 MB of extended memory are left).
 
@@ -80,6 +82,7 @@ whatever the machine runs. The full guide is [docs/pc-link.md](docs/pc-link.md).
     tools/pc286ctl.py shot picture.png                # a graphics screen
     tools/pc286ctl.py mouse 20 -5                     # and click
     tools/pc286ctl.py peek 40:17 2                    # RAM; also poke, save and load a file
+    tools/pc286ctl.py clock                           # set the date and time to this computer's
     tools/pc286ctl.py reset
 
 Files, with the machine at the DOS prompt:
@@ -105,7 +108,7 @@ memory). The same tool talks to the simulator: `build/simsys --pty build/pty ...
 - `sim/` the simulator (Verilator): RAM, an SD card, a CH9350 keyboard and the serial port as models
 - `tools/` card and hard disk images, a FAT tool, the remote control, the keyboard table, the palette
 - `tests/` small boot sectors that test one thing each (video modes, mouse, memory move,
-  protected mode, sound, the PC link and its drive B:), and `tests/run.py`, which runs them all
+  protected mode, sound, the clock, the PC link and its drive B:), and `tests/run.py`, which runs them all
   in the simulator
 - `docs/` the PC link guide, pictures
 - `board/` pins, timing constraints, the Gowin build script
