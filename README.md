@@ -8,6 +8,8 @@ Status: work in progress. In simulation the machine boots FreeDOS from an SD car
 (floppy or hard disk). On the board it boots FreeDOS, runs games (Monkey Island, Lotus,
 SkyRoads) and Windows 3.1 in standard mode, with the mouse.
 
+![Windows 3.1 on the board: Paintbrush, Calculator and Clock](docs/windows31-board.jpg)
+
 ## The machine
 
 | Part | How |
