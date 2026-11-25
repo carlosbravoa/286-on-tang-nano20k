@@ -63,11 +63,18 @@ E_SDOK          equ 0x11
 E_FLOPPY        equ 0x20
 E_HD            equ 0x30
 E_HDPARM        equ 0x40            ; the table INT 41h points to
+E_REMOTE        equ 0xC0            ; drive B:, on another computer (pc286ctl.py knows these places)
+E_RSERVE        equ 0xCE            ; 1 = it is being served
+E_RSTATE        equ 0xD0            ; 1 = a request waits; the other side: 80h = done, 80h + an error
+E_ROP           equ 0xD1            ; 2 read, 3 write
+E_RCOUNT        equ 0xD2            ; sectors
+E_RLBA          equ 0xD4            ; the first one
+E_RBUF          equ 0xD8            ; where in memory
 
 ; ───────────────────────────── reset ─────────────────────────────
 cmos_table:                         ; register, value; ends with FFh
         db 0x0A, 0x26, 0x0B, 0x02, 0x0C, 0x00, 0x0D, 0x80, 0x0E, 0x00
-        db 0x10, 0x40               ; drive A: 1.44 MB
+        db 0x10, 0x44               ; drives A: and B: 1.44 MB
         db 0x12, 0xF0, 0x14, 0x21, 0x19, 0x2F
         db 0x15, 0x80, 0x16, 0x02   ; 640 KB
         db 0x17, 0x00, 0x18, 0x1B   ; 6912 KB above 1 MB

@@ -24,7 +24,7 @@ SkyRoads) and Windows 3.1 in standard mode, with the mouse.
 | AdLib | OPL2 at 388h/389h ([JTOPL](https://github.com/jotego/jtopl), `rtl/jtopl`), mixed with the speaker into the HDMI sound |
 | Sound Blaster | version 2.0 at 220h, IRQ 7, DMA 1: 8-bit sound, direct or through DMA (`rtl/sblaster.sv`, with the one DMA channel it needs); no recording, MIDI or compressed sound |
 | Timer, interrupts, speaker | 8254 (channels 0 and 2), two 8259s, port 61h; the speaker is heard over HDMI |
-| Remote control | a monitor on the USB serial port types keys, moves the mouse, reads and writes RAM and resets the machine (`rtl/monitor.sv`, `tools/pc286ctl.py`; see below) |
+| Remote control | a monitor on the USB serial port types keys, moves the mouse, reads and writes RAM, resets the machine and copies files to and from its disk (`rtl/monitor.sv`, `tools/pc286ctl.py`; see below) |
 | Memory window | D0000-DFFFF can show any four 16 KB pages of the 8 MB (ports ECh-EEh): the BIOS copies to and from extended memory with it (INT 15h AH=87h), expanded memory will use it |
 
 There is no second processor: everything the machine needs is logic or x86 code in the BIOS.
@@ -79,7 +79,17 @@ monitor in the FPGA. The machine's software has no part in it, so it works whate
 The port is `--port`, else `$PC286_PORT`, else `/dev/ttyUSB1`. It reads RAM only: not the
 ROM, not the video registers (a picture has the BIOS' colours and starts at the start of
 video memory). The same tool talks to the simulator: `build/simsys --pty build/pty ...`,
-then `--port build/pty --timeout 300`. Sending files to the machine's disk is not there yet.
+then `--port build/pty --timeout 300`.
+
+Files go the same way. While the tool asks for it, the BIOS has a drive B: whose sectors come
+from the other computer (it leaves each request in its data area, and the tool reads and
+writes the machine's memory). At the DOS prompt:
+
+    tools/pc286ctl.py put game.zip mygame/ C:/GAMES   # files and whole directories
+    tools/pc286ctl.py get 'C:/GAMES/SAVE*.DAT' saves/
+    tools/pc286ctl.py serve disk.img                  # be drive B: with an image
+
+About 11 KB a second to the machine and 5 KB a second back; names must be 8.3.
 
 ## Directories
 

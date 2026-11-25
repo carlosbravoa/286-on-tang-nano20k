@@ -18,13 +18,20 @@
   save ADDR LENGTH FILE  RAM to a file
   load ADDR FILE         a file to RAM
   reset                  the reset button (RAM is kept)
+  put FILE|DIR ... DEST  copy files of this computer to a DOS directory (C:/GAMES or C:\\GAMES;
+                         it is made if missing). A directory goes with what is in it, as
+                         DEST\\NAME. The machine must be at the DOS prompt.
+  get DOSFILE ... DIR    copy DOS files (wildcards too) to a directory of this computer
+  serve IMAGE            be drive B: with a FAT disk image, until Ctrl-C
   log [SECONDS]          show the text the BIOS sends (default: until Ctrl-C)
 
 The port is --port, else $PC286_PORT, else /dev/ttyUSB1. With the simulator:
   build/simsys --sd CARD.img --pty build/pty ... &   then   --port build/pty --timeout 300
 Only RAM can be read: not the ROM, not the video registers.
+Files go through drive B:, which the BIOS asks this program for while put, get or serve runs
+(about 11 KB a second to the machine, 5 KB a second back). Names must be 8.3.
 """
-import os, select, sys, termios, time
+import os, re, select, struct, subprocess, sys, tempfile, termios, time
 
 SET1 = {}
 for i, c in enumerate("1234567890-="): SET1[c] = 0x02 + i
@@ -72,7 +79,9 @@ class Link:
         os.write(self.fd, bytes(data)); return self.recv(n)
 
     def ping(self):
-        if self.cmd(b'?') != b'\x86': raise SystemExit('something answers, but not the monitor')
+        a = self.cmd(b'?')
+        if a not in (b'\x86', b'\x87'): raise SystemExit('something answers, but not the monitor')
+        self.block = a == b'\x87'                           # it can take a block of bytes at once
 
     def seek(self, addr): self.cmd(bytes([ord('A'), addr >> 16 & 0x7F, addr >> 8 & 0xFF, addr & 0xFF]))
 
@@ -84,7 +93,11 @@ class Link:
 
     def write(self, addr, data):
         self.seek(addr)
-        for b in data: self.cmd(bytes([ord('w'), b]))
+        if not self.block:
+            for b in data: self.cmd(bytes([ord('w'), b]))
+            return
+        for i in range(0, len(data), 256):
+            part = data[i:i + 256]; self.cmd(bytes([ord('W'), len(part) - 1]) + part)
 
     def code(self, c, up=False):
         if c > 0xFF: self.cmd(b'K\xE0')
@@ -156,6 +169,119 @@ class Link:
             with open(name, 'wb') as f: f.write(b'P6 %d %d 255\n' % (w, h) + raw)
         print('%s: %dx%d, mode %02Xh' % (name, w, h, mode))
 
+    # ── drive B: (the BIOS leaves its requests in its data area: see bios/disk.asm) ──
+    REMOTE = 0x9FCC0
+
+    def prompt(self):
+        """is DOS waiting at its prompt?"""
+        col, row = self.read(0x450, 2)
+        line = self.screen(row, row)[0]
+        return col > 0 and len(line) == col and line.endswith('>')
+
+    def serve(self, image, done=None, quiet=False):
+        """be drive B: with this image until done() says so (asked when the machine is idle)"""
+        f = open(image, 'r+b'); boot = f.read(512)
+        spt, heads = struct.unpack_from('<HH', boot, 0x18)
+        total = struct.unpack_from('<H', boot, 0x13)[0] or struct.unpack_from('<I', boot, 0x20)[0]
+        if boot[510:] != b'\x55\xAA' or not 0 < spt < 64 or not 0 < heads < 256: raise SystemExit(image + ': not a FAT disk image')
+        cyls = -(-total // (spt * heads))
+        if cyls > 1023: raise SystemExit(image + ': too big')
+        if not self.block: raise SystemExit('the machine has an older monitor: it needs the bitstream with drive B:')
+        def hello():                                        # also after a reset: the BIOS forgets us
+            self.write(self.REMOTE, struct.pack('<BBBBHII', 1, spt, heads, 4, cyls, 0, total))
+            self.write(self.REMOTE + 0x10, b'\0'); self.write(self.REMOTE + 0x0E, b'\1')
+        hello()
+        last = req = time.time(); sent = got = 0
+        try:
+            while True:
+                r = self.read(self.REMOTE + 0x0E, 14)
+                if r[0] != 1: hello(); time.sleep(0.2); continue
+                r = r[2:]
+                if r[0] != 1:
+                    if done and time.time() - last > 1.5:
+                        if done(time.time() - req): break
+                        last = time.time() - 1.0
+                    time.sleep(0.005); continue
+                op, n = r[1], r[2]; lba, buf = struct.unpack_from('<II', r, 4)
+                if op == 2:
+                    f.seek(lba * 512); self.write(buf, f.read(n * 512).ljust(n * 512, b'\0')); sent += n
+                else:
+                    f.seek(lba * 512); f.write(self.read(buf, n * 512)); f.flush(); got += n
+                self.write(self.REMOTE + 0x10, b'\x80'); last = req = time.time()
+                if not quiet: print('\r%d KB to the machine, %d KB back ' % (sent // 2, got // 2), end='', file=sys.stderr, flush=True)
+        finally:
+            f.close()
+            if not quiet and sent + got: print(file=sys.stderr)
+            try: self.write(self.REMOTE + 0x0E, b'\0')
+            except BaseException: pass
+
+    def dos(self, line, image, limit=120):
+        """type a DOS command and be drive B: until the prompt is back"""
+        if not self.prompt(): raise SystemExit('the machine is not at the DOS prompt')
+        def done(idle):
+            if self.prompt(): return True
+            if idle > limit:
+                raise SystemExit('DOS does not come back to its prompt:\n' + '\n'.join(l for l in self.screen() if l))
+            return False
+        # the request the BIOS waits for must not wait for our typing: first say we are there
+        self.type(line + '\r'); time.sleep(0.3)
+        self.serve(image, done)
+
+def mkimage(path, kb):
+    """an empty FAT image with room for kb: a 1.44 MB floppy, or as big as it takes"""
+    mkfs = '/usr/sbin/mkfs.fat' if os.path.exists('/usr/sbin/mkfs.fat') else 'mkfs.fat'
+    if kb <= 1300: cmd = [mkfs, '-C', path, '1440']
+    else:
+        size = -(-max(16384, kb * 9 // 8 + 2048) // 504) * 504     # whole cylinders of 16 x 63 sectors
+        if size > 500000: raise SystemExit('too much for one go (%d MB)' % (kb // 1024))
+        cmd = [mkfs, '-F', '16', '-g', '16/63', '-C', path, str(size)]
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+
+def dospath(s):
+    s = s.replace('/', '\\').upper()
+    return s[:-1] if len(s) > 3 and s.endswith('\\') else s
+
+def put(m, srcs, dest):
+    here = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, here)
+    from fatimg import Fat
+    ok = r"[A-Za-z0-9_!#$%&'()@^`{}~-]{1,8}(\.[A-Za-z0-9_!#$%&'()@^`{}~-]{0,3})?"
+    kb = 0; dirs = False
+    for src in srcs:
+        if not os.path.exists(src): raise SystemExit(src + ': not there')
+        if not re.fullmatch(ok, os.path.basename(os.path.normpath(src))): raise SystemExit(src + ': not an 8.3 name')
+        if os.path.isdir(src):
+            dirs = True
+            for top, _, names in os.walk(src): kb += 4 + sum(os.path.getsize(os.path.join(top, n)) // 1024 + 4 for n in names)
+        else: kb += os.path.getsize(src) // 1024 + 4
+    dest = dospath(dest)
+    with tempfile.TemporaryDirectory() as tmp:
+        img = os.path.join(tmp, 'b.img'); mkimage(img, kb); fs = Fat(img)
+        for src in srcs:
+            name = os.path.basename(os.path.normpath(src)).upper()
+            if os.path.isdir(src): fs.mkdir(name); fs.copy_host(src, name + '/')
+            else: fs.write(name, open(src, 'rb').read())
+        fs.save(); fs.d.close(); fs.f.close()
+        if not m.prompt(): raise SystemExit('the machine is not at the DOS prompt')
+        if len(dest) > 3:
+            m.type('md ' + dest + '\r'); time.sleep(1.0)
+        to = dest if dest.endswith('\\') else dest + '\\'
+        m.dos('xcopy B:\\ %s /S /E /Y' % to if dirs else 'copy /y B:\\*.* ' + to, img)
+    print('\n'.join([l for l in m.screen() if l][-4:]))
+
+def get(m, names, dest):
+    here = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, here)
+    from fatimg import Fat
+    os.makedirs(dest, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        img = os.path.join(tmp, 'b.img'); mkimage(img, 30000)
+        for n in names: m.dos('copy /y %s B:\\' % dospath(n), img)
+        fs = Fat(img); count = 0
+        for o, n, attr, c, size in fs.entries():
+            if attr & 0x18: continue
+            open(os.path.join(dest, n), 'wb').write(fs.read(n)); count += 1
+            print('%s  %d bytes' % (os.path.join(dest, n), size))
+        if not count: print('\n'.join([l for l in m.screen() if l][-4:])); raise SystemExit('nothing came')
+
 def addr(s):
     if ':' in s: seg, off = s.split(':'); return int(seg, 16) * 16 + int(off, 16)
     return int(s, 16)
@@ -206,6 +332,12 @@ def main():
         with open(a[2], 'wb') as f: f.write(m.read(addr(a[0]), int(a[1], 0)))
     elif c == 'load': m.write(addr(a[0]), open(a[1], 'rb').read())
     elif c == 'reset': m.cmd(b'R'); print('reset')
+    elif c == 'put' and len(a) > 1: put(m, a[:-1], a[-1])
+    elif c == 'get' and len(a) > 1: get(m, a[:-1], a[-1])
+    elif c == 'serve':
+        print('drive B: is %s; Ctrl-C to stop' % a[0])
+        try: m.serve(a[0])
+        except KeyboardInterrupt: pass
     else: raise SystemExit(__doc__)
 
 main()

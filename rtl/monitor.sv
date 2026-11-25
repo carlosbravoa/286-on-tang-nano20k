@@ -3,12 +3,13 @@
 // RAM and presses reset. The machine itself knows nothing of it.
 //
 // A command is a letter and its bytes; every command is answered:
-//   ?            who is there                       answer 86h
+//   ?            who is there                       answer 87h (86h: a monitor without W)
 //   K code       a key code (scancode set 1), as if the keyboard had sent it      'K'
 //   M b dx dy    a mouse report: buttons, movement right and down (signed)        'M'
 //   A hi mid lo  the address for r and w (23 bits; the EGA planes are at 7C0000h) 'A'
 //   r n          read n+1 bytes; the address moves on                             the bytes
 //   w byte       write a byte; the address moves on                               'w'
+//   W n bytes    write n+1 bytes; the address moves on                            'W' at the end
 //   R            reset the machine (not its RAM)                                  'R'
 // The answers share the wire with the BIOS' text. A byte of an answer is sent as two:
 // A0h + its high half, then B0h + its low half; the text never has bytes A0h-BFh (the
@@ -57,7 +58,7 @@ module monitor #(parameter int CLK_HZ = 25_312_500, parameter int BAUD = 115200)
     end
 
     // ── commands ──
-    typedef enum logic [2:0] {IDLE, ARGS, KEY, MEM, MEMEND, SEND_HI, SEND_LO} state_t;
+    typedef enum logic [2:0] {IDLE, ARGS, KEY, MEM, MEMEND, SEND_HI, SEND_LO, BLOCK} state_t;
     state_t      st_q;
     logic [7:0]  cmd_q, out_q, left_q;
     logic [1:0]  nargs_q;
@@ -67,7 +68,7 @@ module monitor #(parameter int CLK_HZ = 25_312_500, parameter int BAUD = 115200)
     assign sc_valid = st_q == KEY;
     assign sc_data  = arg_q[7:0];
     assign m_req    = st_q == MEM;
-    assign m_we     = cmd_q == "w";
+    assign m_we     = cmd_q == "w" || cmd_q == "W";
     assign m_wdata  = arg_q[7:0];
     assign tx_valid = st_q == SEND_HI || st_q == SEND_LO;
     assign tx_data  = st_q == SEND_HI ? {4'hA, out_q[7:4]} : {4'hB, out_q[3:0]};
@@ -91,6 +92,7 @@ module monitor #(parameter int CLK_HZ = 25_312_500, parameter int BAUD = 115200)
                         "M": mouse_valid <= 1'b1;
                         "A": m_addr <= arg[22:0];
                         "r": begin left_q <= byte_q; st_q <= MEM; end
+                        "W": begin left_q <= byte_q; st_q <= BLOCK; end
                         default: st_q <= MEM;                       // w
                     endcase
                 end
@@ -100,7 +102,9 @@ module monitor #(parameter int CLK_HZ = 25_312_500, parameter int BAUD = 115200)
             MEMEND: begin
                 m_addr <= m_addr + 23'd1; st_q <= SEND_HI;
                 if (cmd_q == "r") begin out_q <= m_rdata; more_q <= left_q != 0; left_q <= left_q - 8'd1; end
+                if (cmd_q == "W") begin left_q <= left_q - 8'd1; if (left_q != 0) st_q <= BLOCK; end
             end
+            BLOCK: if (byte_valid) begin arg_q[7:0] <= byte_q; st_q <= MEM; end
             SEND_HI: if (tx_ready) st_q <= SEND_LO;
             SEND_LO: if (tx_ready) st_q <= more_q ? MEM : IDLE;
             default: st_q <= IDLE;
@@ -109,9 +113,9 @@ module monitor #(parameter int CLK_HZ = 25_312_500, parameter int BAUD = 115200)
         if (byte_valid && (st_q == IDLE || st_q == KEY)) begin
             cmd_q <= byte_q; out_q <= byte_q; more_q <= 1'b0; st_q <= IDLE;
             case (byte_q)
-                "?": begin out_q <= 8'h86; st_q <= SEND_HI; end
+                "?": begin out_q <= 8'h87; st_q <= SEND_HI; end
                 "R": begin rst_q <= '1; st_q <= SEND_HI; end
-                "K", "r", "w": begin nargs_q <= 2'd1; st_q <= ARGS; end
+                "K", "r", "w", "W": begin nargs_q <= 2'd1; st_q <= ARGS; end
                 "M", "A": begin nargs_q <= 2'd3; st_q <= ARGS; end
                 default: ;
             endcase

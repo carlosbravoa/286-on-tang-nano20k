@@ -288,6 +288,20 @@ drives_init:
         mov ds, ax
         xor ax, ax
         mov es, ax
+        ; drive B: is on another computer, if one serves it; until it says what, 1.44 MB
+        mov word [E_REMOTE+DRV.present], 0x1201
+        mov word [E_REMOTE+DRV.heads], 0x0402
+        mov word [E_REMOTE+DRV.cyls], 80
+        xor ax, ax
+        mov [E_REMOTE+DRV.base], ax
+        mov [E_REMOTE+DRV.base+2], ax
+        mov [E_RSERVE], al
+        mov [E_RSTATE], al
+        push ds
+        mov ax, 0x40
+        mov ds, ax
+        or word [BD_EQUIP], 0x0041  ; two floppy drives
+        pop ds
         ; floppy image: a boot sector with a FAT12 parameter block
         mov ax, FLOPPY_LBA
         xor dx, dx
@@ -403,6 +417,9 @@ int13:  sti
         mov si, E_FLOPPY
         or dl, dl
         jz .drv
+        mov si, E_REMOTE
+        cmp dl, 1
+        je .drv
         mov si, E_HD
         cmp dl, 0x80
         jne .nodrive
@@ -542,6 +559,9 @@ d_read: mov byte [bp+18], 0         ; sectors done
         mov ah, 0x04                ; sector not found
         jmp d_fail
 .found:
+        mov bh, 2
+        cmp si, E_REMOTE
+        je d_remote
         mov di, F_BX
         mov es, F_ES
 .l:     push ax
@@ -576,7 +596,10 @@ d_write:
         jnc .found
         mov ah, 0x04
         jmp d_fail
-.found: mov di, si
+.found: mov bh, 3
+        cmp si, E_REMOTE
+        je d_remote
+        mov di, si
         mov si, F_BX
         mov es, F_ES
 .l:     push ax
@@ -600,6 +623,48 @@ d_write:
         mov byte [bp+19], 0
         jmp d_ret_nc
 
+; Drive B: is on another computer, which looks into this machine's memory through the
+; monitor (tools/pc286ctl.py serve): we leave the request in the EBDA and wait until it says
+; done; it reads or writes the caller's memory itself.
+; BH = 2 read, 3 write; BL = sectors; DX:AX = the first one.
+d_remote:
+        cmp byte [E_RSERVE], 0
+        jne .on
+.gone:  mov ah, 0x80                ; nobody there: not ready
+        jmp d_fail
+.on:    mov [E_RLBA], ax
+        mov [E_RLBA+2], dx
+        mov [E_ROP], bh
+        mov [E_RCOUNT], bl
+        mov ax, F_ES                ; where the caller's memory is
+        mov dx, ax
+        shl ax, 4
+        shr dx, 12
+        add ax, F_BX
+        adc dx, 0
+        mov [E_RBUF], ax
+        mov [E_RBUF+2], dx
+        mov byte [E_RSTATE], 1
+        mov ax, 0x40
+        mov es, ax
+        mov cx, [es:BD_TICKS]
+.wait:  test byte [E_RSTATE], 0x80
+        jnz .done
+        mov ax, [es:BD_TICKS]
+        sub ax, cx
+        cmp ax, 18 * 20             ; 20 seconds
+        jb .wait
+        mov byte [E_RSTATE], 0
+        jmp .gone
+.done:  mov ah, [E_RSTATE]
+        mov byte [E_RSTATE], 0
+        and ah, 0x7F
+        jnz d_fail
+        mov [bp+18], bl
+        call d_setstatus
+        mov byte [bp+19], 0
+        jmp d_ret_nc
+
 d_parms:
         mov ax, [si+DRV.cyls]
         dec ax                      ; highest cylinder
@@ -610,10 +675,11 @@ d_parms:
         mov F_CX, cx
         mov ah, [si+DRV.heads]
         dec ah
-        mov al, 1                   ; one drive of this kind
+        mov al, 1                   ; one hard disk
         mov F_DX, ax
         cmp dl, 0x80
         jae d_ok
+        mov byte [bp+14], 2         ; two floppy drives
         mov al, [si+DRV.type]
         xor ah, ah
         mov F_BX, ax

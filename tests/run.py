@@ -35,6 +35,7 @@ TESTS = {
     'sb2':      ('sbtest2', [], 'simsys', ['--cycles', '40000000'], r'AA00CF 0068 00CE'),
     'bench':    ('bench', [], 'simsys', ['--expect', 'DONE', '--type', ' ', '--after', '1', '--cycles', '200000000'], r'DONE'),
     'monitor':  ('kbdtest', [], 'simsys', ['--cycles', '400000000'], None),
+    'remote':   ('remotetest', [], 'simsys', ['--cycles', '400000000'], None),
 }
 for m in ('01', '04', '06', '13'):
     TESTS['gfx' + m] = ('gfxtest', ['-DMODE=0x' + m], 'simsys', ['--cycles', '16000000'], None)
@@ -81,12 +82,37 @@ def monitor(name, img):
     want = 'E0 48 E0 C8 1E 9E 3B_BB_ 48 1f / 3C BC'
     return got == want, got
 
+def remote(name, img):
+    """drive B: served by tools/pc286ctl.py"""
+    pty = '%s/%s.pty' % (T, name); disk = '%s/%s.b' % (T, name)
+    if os.path.exists(disk): os.remove(disk)
+    sh(mkfs, '--invariant', '-C', disk, '1440')
+    sim = subprocess.Popen(['build/simsys', '--sd', img, '--waits', '4', '--cycles', '400000000', '--pty', pty],
+                           stdout=open('%s/%s.out' % (T, name), 'w'), stderr=subprocess.STDOUT)
+    ctl = ['python3', 'tools/pc286ctl.py', '--port', pty, '--timeout', '300']
+    serve = None
+    try:
+        while not os.path.exists(pty): time.sleep(0.2)
+        serve = subprocess.Popen(ctl + ['serve', disk], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        end = time.time() + 900
+        while b'286' != open(disk, 'rb').read()[6 * 512:6 * 512 + 3] and time.time() < end: time.sleep(1)
+        time.sleep(20)
+        serve.terminate(); serve.wait(); serve = None
+        got = sh(*ctl, 'screen', '5', '5').strip()
+    finally:
+        if serve: serve.kill()
+        sim.kill(); sim.wait()
+        if os.path.islink(pty): os.remove(pty)
+    d = open(disk, 'rb').read()
+    return got == 'mkfs.fatWB2' and d[6 * 512:7 * 512] == b'286' + d[3:512], got
+
 def run(name):
     t0 = time.time()
     try:
         img = image(name)
         src, opts, sim, args, want = TESTS[name]
         if name == 'monitor': ok, note = monitor(name, img)
+        elif name == 'remote': ok, note = remote(name, img)
         else:
             cmd = ['build/' + sim, '--sd', img] + args
             if sim == 'simsys': cmd += ['--waits', '4', '--ppm', '%s/%s.ppm' % (T, name)]
