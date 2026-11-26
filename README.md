@@ -11,6 +11,44 @@ can type, read the screen and copy files to and from its disk over the USB cable
 
 ![Windows 3.1 on the board: Paintbrush, Calculator and Clock](docs/windows31-board.jpg)
 
+## What you need
+
+| Item | Notes |
+|---|---|
+| Sipeed Tang Nano 20K | the FPGA board (GW2AR-18). HDMI, the SD card slot, 8 MB of SDRAM and the USB port are all on it |
+| USB keyboard adapter | a CH9350 USB host module, or a Raspberry Pi Pico acting as one: the board has no USB port for a keyboard |
+| USB keyboard, and a mouse if wanted | plugged into the adapter |
+| Micro SD card | any size; the machine uses up to 2 GB of it |
+| HDMI monitor and cable | 640x480 at 60 Hz, with sound |
+| USB-C cable | power, flashing, and the PC link to another computer |
+| Three jumper wires | adapter to the board's header |
+
+![The two boards and their three wires](docs/wiring.jpg)
+
+The Tang Nano 20K (top) and a CH9350 module (bottom). Three wires join them:
+
+| Adapter | Tang Nano 20K header |
+|---|---|
+| 5V | 5V |
+| GND | GND (any) |
+| TX (TXD) | pin 53 |
+
+The pin numbers are printed on the underside of the board. Nothing else is connected: no
+resistors, and the adapter's RX stays free. The adapter sends the keyboard's and the mouse's
+USB reports as CH9350 frames (115200 baud, 8N1), which the FPGA turns into PC scancodes and
+mouse movement.
+
+- **CH9350 module:** set its switches to host mode, state 0 (data sent as it comes), 115200
+  baud. Keyboard and mouse go into its two USB sockets.
+- **Raspberry Pi Pico:** it must be programmed to be a USB host (TinyUSB) and to send each
+  report as a CH9350 frame on its UART TX at 115200 baud; the frames are described at the top
+  of `rtl/kbd_ch9350.sv`. The keyboard goes on the Pico's USB socket with an OTG adapter.
+
+On the board, button S1 is the reset button. Flash the bitstream from the
+[releases](https://github.com/carlosbravoa/286-on-tang-nano20k/releases) with
+`openFPGALoader -b tangnano20k -f pc286-vX.Y.Z.fs`, write the card image to the SD card (see
+below), and the machine boots FreeDOS.
+
 ## The machine
 
 | Part | How |
