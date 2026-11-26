@@ -194,5 +194,5 @@ This machine stands on the work of others. The hard parts were theirs; thank you
 - **The SeaBIOS, Bochs and LGPL VGA BIOS authors**, for the fonts.
 - **Sipeed**, for the Tang Nano 20K, and the **openFPGALoader**, **Verilator** and **NASM**
   projects, for the tools everything here is built and tested with.
-- The **Atari816** project on this same board, where the clocks, SDRAM, HDMI and keyboard
+- [The **Atari816** project](https://github.com/carlosbravoa/atari816) on this same board, where the clocks, SDRAM, HDMI and keyboard
   adapter were first made to work.
