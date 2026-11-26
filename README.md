@@ -175,3 +175,24 @@ compatible with it: `rtl/board/sdram_nestang.v` is Apache-2.0
 (nand2mario), `rtl/board/hdmi/` is MIT (hdl-util/hdmi), `rtl/jtopl/` is GPL-3.0 (Jose Tejada), `rtl/board/gw2ar_sdram.sv` is GPL-3.0-or-later (or CC-BY-NC-SA-4.0),
 SPK286 (not in this repository: clone it into `ref/SPK286`) is MIT, the fonts come from the
 SeaBIOS VGA BIOS (see `fonts/README.md`).
+
+## Acknowledgements
+
+This machine stands on the work of others. The hard parts were theirs; thank you.
+
+- **Aitor Gómez García**, for [SPK286](https://github.com/aitorgomez-net/SPK286): a complete
+  80286 with its own microcode, checked against captures from real chips. It is the heart of
+  this machine, used unmodified, and the reason it can run protected mode and Windows.
+- **Jose Tejada** (jotego), for [JTOPL](https://github.com/jotego/jtopl): the OPL2 behind the
+  AdLib and Sound Blaster music.
+- **nand2mario**, for the SDRAM controller of [NESTang](https://github.com/nand2mario/nestang),
+  which makes the Tang Nano 20K's memory fast enough to sit behind a CPU.
+- **Sameer Puri** and the [hdl-util/hdmi](https://github.com/hdl-util/hdmi) contributors, for
+  the HDMI output with sound.
+- **The FreeDOS project**, Jim Hall and all its contributors, for a free DOS that boots on a
+  286, and **Till Gerken** and **Martin Strömberg** for FDXMS286, the XMS driver on the card.
+- **The SeaBIOS, Bochs and LGPL VGA BIOS authors**, for the fonts.
+- **Sipeed**, for the Tang Nano 20K, and the **openFPGALoader**, **Verilator** and **NASM**
+  projects, for the tools everything here is built and tested with.
+- The **Atari816** project on this same board, where the clocks, SDRAM, HDMI and keyboard
+  adapter were first made to work.
